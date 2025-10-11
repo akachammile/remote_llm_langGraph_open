@@ -2213,7 +2213,7 @@ wheels = [
 ]
 
 [[package]]
-name = "remote-llm-langgraph"
+name = "remote-llm-langgrap-open"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
