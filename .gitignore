@@ -1,0 +1,60 @@
+# Python缓存和编译文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# VSCode配置
+.vscode/
+
+# Jupyter Notebook检查点
+.ipynb_checkpoints/
+
+# 日志和临时文件
+*.log
+*.tmp
+*.temp
+*.toml
+.env*
+# 数据和输出目录（如有）
+data/
+output/
+results/
+*.csv
+*.tsv
+*.xlsx
+
+# 图片和模型文件（如有）
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tif
+*.tiff
+*.h5
+*.ckpt
+*.pth
+*.pt
+
+# Word/PDF等文档输出
+*.docx
+*.pdf
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 其他常见忽略
+*.bak
+*.swp
+*.swo
+
+# pyright/mypy等类型检查缓存
+.pyright/
+.mypy_cache/
