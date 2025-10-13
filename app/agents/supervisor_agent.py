@@ -10,6 +10,8 @@ from app.database.utils import KnowledgeFile
 from app.graphs.graph_state import AgentState
 from typing import List, Optional, Dict, Union, Set
 from langchain_core.messages import BaseMessage
+from langgraph_supervisor import create_supervisor
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from app.prompts.supervisor_prompt import SYSTEM_PROMPT, TOOL_PROMPT, USER_PROMPT
@@ -21,6 +23,7 @@ class SupervisorAgent(BaseAgent):
     system_prompt: str = SYSTEM_PROMPT
     tool_prompt: str = TOOL_PROMPT
     user_prompt: str = USER_PROMPT
+    current_step: int = 1
 
     def __init__(self):
         super().__init__()
@@ -162,19 +165,36 @@ class SupervisorAgent(BaseAgent):
     async def top_level_supervisor(self, state: AgentState) -> AgentState:  # type: ignore
         """顶层Supervisor节点, 决定下一个子Agent"""
         # TODO: 需要添加循环判断，比如字节点任务完成后，若是返回Supervisor节点时候，需要增加额外的过滤条件，不可以一直循环的走Supervisor
-        user_message = self.user_prompt.format(query = state["question"], keywords = cut_query(text=state["question"]))
         state.setdefault("history", [])
         state["history"].append(state.get("next_agent", "Supervisor"))
 
-        last = state["history"][-3:]
-        # 判断首尾是 Supervisor，中间是任意子Agen
-        if len(last) == 3 and len(set(last)) == 1 and state["reflection"]:   
+        # 🔁 若需要反思，则直接调用反思流程
+        if state.get("reflection", False):
+            logger.info("🔍 反思中 reflect_and_replan")
             state = await self.reflect_and_replan(state)
-        
-        if state["reflection"] and state["next_agent"]: 
-            state = await self.reflect_and_replan(state)
+            state["reflection"] = False
+            return state
 
-        messages = self.system_prompt + self.placehold_prompt + user_message
+        # 🧱 构建输入消息（仅首次或重新规划时使用）
+        if not state.get("messages"):  # 如果没有现成上下文，则用基础 prompt
+            user_message = self.user_prompt.format(query=state["question"])
+            messages = self.system_prompt + self.placehold_prompt + user_message
+        else:
+            # 否则保留已有上下文，让模型接着上次状态思考
+            messages = state["messages"]
+        # user_message = self.user_prompt.format(query = state["question"])
+        # state.setdefault("history", [])
+        # state["history"].append(state.get("next_agent", "Supervisor"))
+
+        # last = state["history"][-3:]
+        # # 判断首尾是 Supervisor，中间是任意子Agen
+        # if len(last) == 3 and len(set(last)) == 1 and state["reflection"]:   
+        #     state = await self.reflect_and_replan(state)
+        
+        # # if state["reflection"] and state["next_agent"]: 
+        # #     state = await self.reflect_and_replan(state)
+
+        # messages = self.system_prompt + self.placehold_prompt + user_message
         response = await self.llm.ask_tool(messages, state)
         json_str = response.content
         match = re.search(r"\{[\s\S]*\}", json_str)
@@ -182,7 +202,7 @@ class SupervisorAgent(BaseAgent):
             json_str = match.group(0)
         response = json.loads(json_str)
         new_state = state.copy()
-        new_state["next_agent"] = response["task"]
+        new_state["next_agent"] = response["task"][0]["name"] 
         new_state["messages"] = response["description"]
         return new_state
 
@@ -194,9 +214,10 @@ class SupervisorAgent(BaseAgent):
         用户问题是: {state['question']}
         提示出现的问题是：{state['messages'][-1].content}
         历史任务轨迹: {state['history']}
-        请分析为什么任务没有完成，并重新规划下一步（例如改用不同Agent、改写指令或提示用户补充信息）。
+        请分析为什么任务没有完成，并重新规划下一步（例如改用不同Agent或提示用户补充信息）。
         仅输出新的任务规划JSON。
         """
+        print(f"提示出现的问题是：{state['messages'][-1].content}")
         reflect_prompt = self.system_prompt + self.placehold_prompt + reflect_prompt
         response = await self.llm.ask_tool(reflect_prompt, state)
         match = re.search(r"\{[\s\S]*\}", response.content)
@@ -213,6 +234,7 @@ class SupervisorAgent(BaseAgent):
         if self._graph is None:
             try:
                 supervisor_builder = StateGraph(AgentState)
+                           
                 vision_subgraph = VisionAgent().build_subgraph()
                 chat_subgraph = ChatAgent().build_subgraph()
                 doc_subgraph = DocAgent().build_subgraph()
@@ -239,12 +261,14 @@ class SupervisorAgent(BaseAgent):
                     },
                 )
                 # supervisor_builder.add_edge("VisionTask", END)
+                
+                # # supervisor_builder.add_edge("ChatTask", END)
+                
+                # # supervisor_builder.add_edge("DocTask", END)
                 supervisor_builder.add_edge("VisionAgent", "top_level_supervisor")
-                # supervisor_builder.add_edge("ChatTask", END)
                 supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
-                # supervisor_builder.add_edge("DocTask", END)
                 supervisor_builder.add_edge("DocAgent", "top_level_supervisor")
-                # supervisor_builder.add_edge("top_level_supervisor", END)
+                supervisor_builder.add_edge("top_level_supervisor", END)
                 self._graph = supervisor_builder.compile()
                 logger.info("Supervisor状态图创建成功")
             except Exception as e:
