@@ -30,7 +30,7 @@ class BaseAgent(ABC, BaseModel):
     next_step_prompt: Optional[str] = Field(None, description="下一步动作的Prompt")
     
     # 执行控制
-    max_steps: int = Field(default=10, description="最大反复执行次数")
+    max_steps: int = Field(default=5, description="最大反复执行次数")
     current_step: int = Field(default=0, description="当前次数")
 
     # duplicate_threshold: int = 2
