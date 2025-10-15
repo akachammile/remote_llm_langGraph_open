@@ -14,7 +14,7 @@ class ImageSegmentationTool:
 
     def __init__(self):
         # 使用支持分割的YOLO模型
-        model_path = config.model_path / "yolov8x-seg.pt"
+        model_path = config.model_path / "yolov8n-seg.pt"
         self.model = YOLO(model_path)
 
     def _image_to_bytes(self, image: np.ndarray, format: str = 'jpg') -> bytes:
