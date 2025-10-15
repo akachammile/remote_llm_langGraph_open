@@ -18,7 +18,7 @@ def call_upload_api(files: List[st.runtime.uploaded_file_manager.UploadedFile]) 
     """调用后端的 /upload 接口，只上传文件。"""
     try:
         files_to_send = [("files", (file.name, file.getvalue(), file.type)) for file in files]
-        response = requests.post(UPLOAD_BACKEND_URL, files=files_to_send, timeout=60)
+        response = requests.post(UPLOAD_BACKEND_URL, files=files_to_send, timeout=180)
 
         if response.status_code == 200:
             return response.json().get("uploaded_files")
@@ -34,13 +34,15 @@ def call_chat_api(query_text: str, metadata: Dict) -> Optional[str]:
     """以JSON格式调用后端的 /chat 接口。"""
     try:
         # 直接将原生 Python 对象放入 payload
+        
         payload = {
             "query": query_text, 
             "metadata": json.dumps(metadata), # 直接传递字典
             "stream": False # 直接传递布尔值
         }
+        print(payload)
         # requests的 `json` 参数会自动处理序列化
-        response = requests.post(CHAT_BACKEND_URL, json=payload, timeout=60)
+        response = requests.post(CHAT_BACKEND_URL, json=payload, timeout=180)
 
         if response.status_code == 200:
             return response.text
@@ -124,14 +126,15 @@ if prompt_data := st.chat_input(
             with st.spinner("AI 正在思考中..."):
                 # 直接传递 Python 字典，而不是 str(metadata_dict)
                 reply_content = call_chat_api(user_text, metadata_dict)
+                print(reply_content, type(reply_content))
                 reply_content = json.loads(reply_content)
                 if reply_content:
-                    st.write(reply_content["messages"][0]["content"])
+                    st.write(next((m["content"] for m in reversed(reply_content["messages"])), ""))
                     assistant_message = {"role": "assistant", "content": reply_content["messages"][0]["content"]}
                     current_conv["messages"].append(assistant_message)
                 # 处理后的图像
                 # processed_files = reply_content['processed_image_path']
-                processed_files = reply_content.get("processed_image_path")
+                processed_files = reply_content.get("processed_image_path", [])
 
                 if processed_files:
                     st.write("🖼️ 处理后的图像：")
@@ -148,6 +151,49 @@ if prompt_data := st.chat_input(
                             current_conv["processed_images"].append(file_data)
                         except Exception as e:
                             st.error(f"无法显示图像: {e}")
+                            
+                processed_docs = reply_content.get("processed_doc_path", [])
+                if processed_docs:
+                    st.write("📄 处理后的文档：")
+                    for doc_path in processed_docs:
+                        try:
+                            # 支持 URL 或本地路径两种情况
+                            if doc_path.startswith("http"):
+                                doc_name = doc_path.split("/")[-1]
+                                st.markdown(f"**{doc_name}**")
+                                st.download_button(
+                                    label="⬇️ 下载文档",
+                                    data=requests.get(doc_path).content,
+                                    file_name=doc_name,
+                                    mime="application/octet-stream"
+                                )
+                            else:
+                                doc_name = doc_path.split("/")[-1]
+                                with open(doc_path, "rb") as f:
+                                    file_bytes = f.read()
+                                st.markdown(f"**{doc_name}**")
+                                st.download_button(
+                                    label="⬇️ 下载文档",
+                                    data=file_bytes,
+                                    file_name=doc_name,
+                                    mime="application/octet-stream"
+                                )
+
+                            # 简单预览文本文件内容（可选）
+                            if doc_name.lower().endswith((".txt", ".md")):
+                                st.text(file_bytes.decode("utf-8")[:1000])
+                            elif doc_name.lower().endswith(".docx"):
+                                st.info("📘 该文档为 Word 文件，可下载查看内容。")
+                            elif doc_name.lower().endswith(".pdf"):
+                                st.info("📕 该文档为 PDF 文件，可下载查看内容。")
+
+                            # 保存历史记录
+                            if "processed_docs" not in current_conv:
+                                current_conv["processed_docs"] = []
+                            current_conv["processed_docs"].append(doc_path)
+
+                        except Exception as e:
+                            st.error(f"无法显示或下载文档: {e}")   
 
             # Reload processed images from conversation history
             # if "processed_images" in current_conv:
