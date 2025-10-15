@@ -6,7 +6,7 @@ from app.agents.base import BaseAgent
 from app.schemas.schema import Message
 from app.graphs.graph_state import AgentState
 from langgraph.graph import StateGraph, START, END
-from app.prompts.chat_prompt import SYSTEM_PROMPT
+from app.prompts.chat_prompt import SYSTEM_PROMPT, NEXT_STEP_PROMPT
 from langchain_core.prompts import ChatPromptTemplate
 from app.tools.image_segmentation_tool import ImageSegmentationTool
 from app.database.db.repository.message_repository import (
@@ -21,6 +21,7 @@ class ChatAgent(BaseAgent):
     description: str = "多模态智能问答模块，支持对话以及对文档、图像等多模态文件进行内容上的分析解读"
     tool: Dict[str, str] = defaultdict(str)
     system_prompt: str = SYSTEM_PROMPT
+    next_step_prompt: str = NEXT_STEP_PROMPT
 
     async def chat(self, state: AgentState) -> AgentState:
         """
@@ -40,6 +41,9 @@ class ChatAgent(BaseAgent):
             history = self.memory.get_recent_messages(n=30)
             prompt = self.system_prompt.format(question=question, history=history + state["memory"])
             state["messages"] = await self.llm.ask(prompt, state)
+            # state["reflection"] = True
+            state["sub_task"] = "回答已完成!"
+            
             if state["messages"]:
                 self.memory.add_message(
                     Message.assistant_message(content=state["messages"].content)
