@@ -122,7 +122,7 @@ class SupervisorAgent(BaseAgent):
         # 更新记忆库
         if message:
             self.update_agent_memory(role="user", content=message)
-            logger.info(f"SupervisorAgent_memo:{self.memory.messages}")
+            logger.info(f"总体记忆:{self.memory.messages}")
 
         try:
             if file_list:
@@ -163,38 +163,22 @@ class SupervisorAgent(BaseAgent):
         Returns:
             str: _description_
         """
-        # if state.get("reflection"):
-        #     return "reflection_node"
-        # elif state.get("sub_task"):
-        #     return "planning_node"
-        # else:
         return state.get("next_agent", "END")
-        
-        # return state.get("next_agent", "END")
     
-    # def after_agent_router(state: AgentState) -> str:
         
 
     async def top_level_supervisor(self, state: AgentState) -> AgentState:  # type: ignore
         """顶层Supervisor节点, 决定下一个子Agent"""
         # TODO: 需要添加循环判断，比如字节点任务完成后，若是返回Supervisor节点时候，需要增加额外的过滤条件，不可以一直循环的走Supervisor
         state.setdefault("history", [])
+        state.setdefault("sub_task", [])
         state["history"].append(state.get("next_agent", "SupervisorAgent"))
         
         if state.get("sub_task"):
             logger.info("🤔 正在思考下一步任务")
             state = await self.next_step(state)
-            # state["sub_task"] = None
             return state
             
-        
-        # 🔁 若需要反思，则直接调用反思流程
-        # if state.get("reflection", False):
-        #     logger.info("🔍 反思中 reflect_and_replan")
-        #     state = await self.reflect_and_replan(state)
-        #     state["reflection"] = False
-        #     return state
-
         # 🧱 构建输入消息（仅首次或重新规划时使用）
         if not state.get("messages"):  # 如果没有现成上下文，则用基础 prompt
             user_message = self.user_prompt.format(query=state["question"])
@@ -223,8 +207,6 @@ class SupervisorAgent(BaseAgent):
     async def chat_node(self, state: AgentState) -> AgentState:
         """专门处理简单对话的节点，然后直接结束流程。"""
         logger.info("💬 正在处理简单对话，流程即将结束。")
-        # 回答内容已由 top_level_supervisor 准备好
-        # 这个节点的主要作用是作为一个明确的图步骤，图的边会将其导向 END
         return state
     async def next_step(self, state: AgentState) -> AgentState:
         """LLM-based反思机制"""
@@ -244,7 +226,6 @@ class SupervisorAgent(BaseAgent):
             state["next_agent"] = plan["task"]["name"]
             state["messages"] = plan["response"]
             state["status"] = "replanned"
-            state["sub_task"] += state["sub_task"]
         else: 
             state["status"] = "failed"
         return state

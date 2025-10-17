@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Qwen AI 助手</title>
+  <style>
+    :root {
+      --primary: #7C5CFF;
+      --primary-light: #EAE6FF;
+      --gray-bg: #F8F9FA;
+      --gray-border: #E9ECEF;
+      --text-dark: #333;
+      --text-muted: #6C757D;
+      --white: #FFF;
+      --shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      display: flex;
+      height: 100vh;
+      background-color: var(--gray-bg);
+      color: var(--text-dark);
+    }
+
+    /* 左侧导航栏 */
+    .sidebar {
+      width: 280px;
+      background: white;
+      border-right: 1px solid var(--gray-border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--gray-border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: bold;
+      color: var(--primary);
+      font-size: 18px;
+    }
+
+    .logo img {
+      width: 24px;
+      height: 24px;
+    }
+
+    .settings-icon {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 18px;
+    }
+
+    .new-chat-btn {
+      margin: 20px 24px;
+      padding: 12px 20px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border: none;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .new-chat-btn:hover {
+      background: #dcd0ff;
+    }
+
+    .search-box {
+      margin: 0 24px 20px;
+      padding: 10px 12px;
+      border: 1px solid var(--gray-border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      background: white;
+    }
+
+    .search-box input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      color: var(--text-dark);
+      background: transparent;
+    }
+
+    .search-box .search-icon {
+      color: var(--text-muted);
+      font-size: 16px;
+    }
+
+    .chat-list-header {
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      padding: 12px 24px;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .chat-list-header:hover {
+      background: var(--gray-bg);
+    }
+
+    .chat-list {
+      padding: 0 24px;
+      list-style: none;
+    }
+
+    .chat-item {
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-size: 14px;
+    }
+
+    .chat-item:hover {
+      background: var(--gray-bg);
+    }
+
+    .user-footer {
+      margin-top: auto;
+      padding: 20px 24px;
+      border-top: 1px solid var(--gray-border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .username {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* 主内容区 */
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .top-bar {
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--gray-border);
+      background: white;
+    }
+
+    .model-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+    }
+
+    .model-name {
+      font-weight: 500;
+      font-size: 14px;
+      color: var(--text-dark);
+      cursor: pointer;
+    }
+
+    .model-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: white;
+      border: 1px solid var(--gray-border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 200px;
+      z-index: 1000;
+      display: none;
+    }
+
+    .model-dropdown.show {
+      display: block;
+    }
+
+    .model-option {
+      padding: 12px 20px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .model-option:hover {
+      background: var(--gray-bg);
+    }
+
+    .set-default {
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      margin-left: 12px;
+    }
+
+    .share-icon {
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .greeting {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 500;
+      margin: 40px 0 20px;
+      color: var(--text-dark);
+    }
+
+    .input-container {
+      max-width: 800px;
+      max-height: fit-content;
+      margin: 0 auto;
+      padding: 20px 24px;
+    }
+
+    .input-box {
+      background: var(--white);
+      border: 1px solid var(--gray-border);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .input-field {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 16px;
+      color: var(--text-dark);
+      background: transparent;
+    }
+
+    .input-field::placeholder {
+      color: var(--text-muted);
+    }
+
+    .input-tools {
+      display: flex;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      color: var(--text-dark);
+      background: var(--gray-bg);
+      transition: background 0.2s;
+    }
+
+    .tool-btn:hover {
+      background: var(--gray-border);
+    }
+
+    .tool-btn.primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .tool-btn.primary:hover {
+      background: #6b4be0;
+    }
+
+    .dropdown-trigger {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: var(--gray-bg);
+      font-size: 14px;
+    }
+
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background: white;
+      border: 1px solid var(--gray-border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 120px;
+      z-index: 1000;
+      display: none;
+    }
+
+    .dropdown-menu.show {
+      display: block;
+    }
+
+    .dropdown-item {
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .dropdown-item:hover {
+      background: var(--gray-bg);
+    }
+
+    .quick-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 20px;
+      padding: 0 24px;
+    }
+
+    .action-card {
+      padding: 10px 16px;
+      border: 1px solid var(--gray-border);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .action-card:hover {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .action-card i {
+      font-size: 16px;
+    }
+
+    .more-card {
+      background: var(--gray-bg);
+      border-color: var(--gray-border);
+    }
+
+    .more-card:hover {
+      background: var(--gray-border);
+    }
+
+    .conversation-area {
+      flex: 1;
+      padding: 20px 32px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 16px;
+    }
+
+    .conversation-area p {
+      text-align: center;
+      max-width: 600px;
+      line-height: 1.6;
+    }
+
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .sidebar {
+        width: 60px;
+        overflow-x: hidden;
+      }
+
+      .sidebar-header {
+        padding: 12px;
+      }
+
+      .logo span {
+        display: none;
+      }
+
+      .new-chat-btn,
+      .search-box,
+      .chat-list-header,
+      .chat-item,
+      .user-footer {
+        padding: 12px;
+      }
+
+      .new-chat-btn span {
+        display: none;
+      }
+
+      .top-bar {
+        padding: 12px;
+      }
+
+      .greeting {
+        font-size: 24px;
+        margin: 30px 0 15px;
+      }
+
+      .input-container {
+        padding: 12px;
+      }
+
+      .input-box {
+        padding: 12px;
+      }
+
+      .quick-actions {
+        margin-top: 12px;
+        padding: 0 12px;
+      }
+
+      .action-card {
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 左侧导航栏 -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span>Qwen</span>
+      </div>
+      <div class="settings-icon">⚙️</div>
+    </div>
+
+    <button class="new-chat-btn">
+      <span>+</span>
+      <span>新建对话</span>
+    </button>
+
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" placeholder="搜索对话" />
+    </div>
+
+    <div class="chat-list-header">
+      <span>所有对话</span>
+      <span>⋯</span>
+    </div>
+
+    <ul class="chat-list">
+      <li class="chat-item">项目计划讨论</li>
+      <li class="chat-item">代码调试求助</li>
+      <li class="chat-item">旅行目的地推荐</li>
+    </ul>
+
+    <div class="user-footer">
+      <div class="avatar">S</div>
+      <div class="username">Spring Lee</div>
+    </div>
+  </div>
+
+  <!-- 主内容区 -->
+  <div class="main-content">
+    <div class="top-bar">
+      <div class="model-selector">
+        <div class="model-name" id="modelName">Qwen3-VL-235B-A22B ▼</div>
+        <div class="model-dropdown" id="modelDropdown">
+          <div class="model-option">Qwen3-VL-235B-A22B</div>
+          <div class="model-option">Qwen2-72B-Instruct</div>
+          <div class="model-option">Qwen-VL-Max</div>
+          <div class="model-option">Qwen1.5-32B-Chat</div>
+        </div>
+        <span class="set-default">设为默认</span>
+      </div>
+      <div class="share-icon">🔗</div>
+    </div>
+
+    <div class="greeting">下午好, Spring Lee</div>
+
+    <div class="input-container">
+      <div class="input-box">
+        <input class="input-field" type="text" placeholder="有什么我能帮您的吗？" />
+
+        <div class="input-tools">
+          <div class="tool-btn">+</div>
+          <div class="dropdown-trigger" id="thinkTrigger">
+            🧠 深度思考
+            <div class="dropdown-menu" id="thinkMenu">
+              <div class="dropdown-item">标准模式</div>
+              <div class="dropdown-item">深度思考</div>
+              <div class="dropdown-item">快速响应</div>
+            </div>
+          </div>
+          <div class="tool-btn">🌐 搜索</div>
+          <div class="tool-btn primary" id="voiceBtn">🎤</div>
+        </div>
+      </div>
+
+      <div class="quick-actions">
+        <div class="action-card"><span>🎨</span> 图像编辑</div>
+        <div class="action-card"><span>💻</span> 网页开发</div>
+      </div>
+    </div>
+
+    <!-- <div class="conversation-area">
+      <p>开始与 Qwen 对话吧！您可以提问、上传文件或使用上方的功能卡片。</p>
+    </div> -->
+  </div>
+
+  <script>
+    // 模型选择器
+    const modelName = document.getElementById('modelName');
+    const modelDropdown = document.getElementById('modelDropdown');
+
+    modelName.addEventListener('click', () => {
+      modelDropdown.classList.toggle('show');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!modelName.contains(e.target) && !modelDropdown.contains(e.target)) {
+        modelDropdown.classList.remove('show');
+      }
+    });
+
+    // 思考模式下拉菜单
+    const thinkTrigger = document.getElementById('thinkTrigger');
+    const thinkMenu = document.getElementById('thinkMenu');
+
+    thinkTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      thinkMenu.classList.toggle('show');
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!thinkTrigger.contains(e.target) && !thinkMenu.contains(e.target)) {
+        thinkMenu.classList.remove('show');
+      }
+    });
+
+    // 语音按钮提示
+    const voiceBtn = document.getElementById('voiceBtn');
+    voiceBtn.addEventListener('click', () => {
+      alert('语音输入功能已激活，请对着麦克风说话...');
+    });
+
+    // 新建对话按钮
+    const newChatBtn = document.querySelector('.new-chat-btn');
+    newChatBtn.addEventListener('click', () => {
+      alert('已创建新对话！');
+      // 可在此清空输入框和对话历史
+    });
+
+    // 快捷功能卡片点击
+    document.querySelectorAll('.action-card').forEach(card => {
+      card.addEventListener('click', () => {
+        alert(`您选择了：${card.textContent.trim()}`);
+      });
+    });
+
+    // 模型选项点击
+    document.querySelectorAll('.model-option').forEach(option => {
+      option.addEventListener('click', () => {
+        modelName.textContent = option.textContent + ' ▼';
+        modelDropdown.classList.remove('show');
+      });
+    });
+
+    // “设为默认”点击
+    document.querySelector('.set-default').addEventListener('click', () => {
+      alert('当前模型已设为默认');
+    });
+
+    // 模拟输入框回车发送
+    const inputField = document.querySelector('.input-field');
+    inputField.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        if (inputField.value.trim()) {
+          alert(`发送消息：${inputField.value}`);
+          inputField.value = '';
+        }
+      }
+    });
+  </script>
+
+</body>
+</html>

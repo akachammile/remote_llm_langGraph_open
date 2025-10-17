@@ -10,7 +10,7 @@ from app.tools.custom_decorator_tool import retry_decorator
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda, RunnableSerializable
+from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializable
 REASONING_MODELS = ["o1", "o3-mini"]
 MULTIMODAL_MODELS = ["qwen2.5vl:7b"]
 

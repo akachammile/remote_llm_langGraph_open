@@ -86,6 +86,7 @@ class DocAgent(BaseAgent):
 
     
     async def write_doc(self, state: AgentState, title: str = "分析结果")->AgentState:
+        logger.info(f"✅ 执行doc_agent")
         content_to_fill = state["image_content"]
         document = Document(self.doc_template)
         cleaned_key_map = {re.sub(r'^\d+(\.\d+)*\s*', '', k).strip(): k for k in content_to_fill.keys()}
@@ -115,7 +116,14 @@ class DocAgent(BaseAgent):
                 new_p.append(new_run)
                 new_t = new_run.makeelement(qn('w:t'))
                 new_run.append(new_t)
+                
+                if isinstance(content_to_add, (dict, list)):
+                    content_to_add = json.dumps(content_to_add, ensure_ascii=False, indent=2)
+                elif not isinstance(content_to_add, str):
+                    content_to_add = str(content_to_add)
+
                 new_t.text = content_to_add
+                # new_t.text = content_to_add
             else:
                 logger.warning(f"❌ 未找到匹配: '{para_text_cleaned}' 在 {list(cleaned_key_map.keys())} 中不存在。")
         document.save(self.output_path)

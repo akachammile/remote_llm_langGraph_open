@@ -21,7 +21,7 @@ class AgentState(MessagesState):
     processed_image_path: Union[List, str] # 分割图像存储路径
     processed_doc_path: Union[List, str]
     reflection: Annotated[Optional[bool], None]
-    sub_task: Annotated[Optional[str], None]
+    sub_task: Annotated[Optional[List[str]], None]
     
     max_steps: Annotated[Optional[int], None] # 最大步骤数
     repeat_step: Annotated[Optional[int], None]

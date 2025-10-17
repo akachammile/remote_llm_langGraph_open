@@ -496,28 +496,6 @@ class Config:
     def embeding(self) -> Dict[str, LLMSettings]:
         return self._config.embeding
 
-    # @property
-    # def sandbox(self) -> SandboxSettings:
-    #     return self._config.sandbox
-
-    # @property
-    # def browser_config(self) -> Optional[BrowserSettings]:
-    #     return self._config.browser_config
-
-    # @property
-    # def search_config(self) -> Optional[SearchSettings]:
-    #     return self._config.search_config
-
-    # @property
-    # def mcp_config(self) -> MCPSettings:
-    #     """Get the MCP configuration"""
-    #     return self._config.mcp_config
-
-    # @property
-    # def run_flow_config(self) -> RunflowSettings:
-    #     """Get the Run Flow configuration"""
-    #     return self._config.run_flow_config
-
     @property
     def workspace_root(self) -> Path:
         """获取workspace根目录"""

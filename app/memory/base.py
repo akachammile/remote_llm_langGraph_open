@@ -35,3 +35,5 @@ class Memory(BaseModel):
     def to_dict_list(self) -> List[dict]:
         """消息转化为dict"""
         return [msg.to_dict() for msg in self.messages]
+    
+    

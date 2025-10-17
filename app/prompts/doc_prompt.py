@@ -14,26 +14,26 @@ SYSTEM_PROMPT = \
     }}
     """
 
-TOOL_PROMPT = \
-    """
-    系统中存在以下的工具，请根据用户问题，选择一个工具进行处理，并给出处理结果。
-    工具列表为：
-    _TOOLS = [
-        {
-            "name": "node_detection",
-            "description": "image_detection",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "image": {
-                        "type": "string",
-                        "description": "图片地址"
-                    }
-                },
-                "required": ["image"]
-            }
-        },
-    {tools}
-    请根据用户问题，选择一个工具进行处理，并给出处理结果。
-    """
+# TOOL_PROMPT = \
+#     """
+#     系统中存在以下的工具，请根据用户问题，选择一个工具进行处理，并给出处理结果。
+#     工具列表为：
+#     _TOOLS = [
+#         {
+#             "name": "node_detection",
+#             "description": "image_detection",
+#             "parameters": {
+#                 "type": "object",
+#                 "properties": {
+#                     "image": {
+#                         "type": "string",
+#                         "description": "图片地址"
+#                     }
+#                 },
+#                 "required": ["image"]
+#             }
+#         },
+#     {tools}
+#     请根据用户问题，选择一个工具进行处理，并给出处理结果。
+#     """
     
