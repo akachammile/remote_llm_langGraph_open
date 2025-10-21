@@ -2,17 +2,20 @@ import math
 from app.logger import logger
 from langchain_ollama import ChatOllama
 from app.graphs.graph_state import AgentState
-from app.cores.config import LLMSettings, config
+from app.cores.config import config
 from langchain_core.messages import HumanMessage
 from typing import Dict, Any, Optional, Union, List
 from langchain_core.messages import BaseMessage, AIMessage
 from app.tools.custom_decorator_tool import retry_decorator
 from langchain_core.vectorstores import InMemoryVectorStore
+from openai import APIError, AsyncAzureOpenAI,AsyncOpenAI
 from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializable
+from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES
+
 REASONING_MODELS = ["o1", "o3-mini"]
-MULTIMODAL_MODELS = ["qwen2.5vl:7b"]
+MULTIMODAL_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:32b", "z-uo/qwen2.5vl_tools:7b"]
 
 
 class TokenCounter:
@@ -146,36 +149,32 @@ class LLM:
     _instances: Dict[str, "LLM"] = {}
 
     # 单例模式
-    def __new__(cls, config_name: str = "default", llm_config: Optional[LLMSettings] = None):
+    def __new__(cls, config_name: str = "default"):
         if config_name not in cls._instances:
             instance = super().__new__(cls)
-            instance.__init__(config_name, llm_config)
+            instance.__init__()
             cls._instances[config_name] = instance
         return cls._instances[config_name]
     
     # LLM属性初始化
-    def __init__(self, config_name: str = "default", llm_config: Optional[LLMSettings] = None):
+    def __init__(self):
         if not hasattr(self, "client"):  # 没有llm实例则初始化一个即可
-            llm_config = llm_config or config.llm
-            llm_config = llm_config.get(config_name, llm_config["default"])
-            self.model = llm_config.model
-            self.max_tokens = llm_config.max_tokens
-            self.temperature = llm_config.temperature
-            self.api_type = llm_config.api_type
-            self.api_key = llm_config.api_key
-            self.api_version = llm_config.api_version
-            self.base_url = llm_config.base_url
-            self.top_k = llm_config.top_k
-            self.top_p = llm_config.top_p
+            self.base_url = config.MODEL_BASE_URL.get_secret_value()
+            self.model = config.MODEL_NAME
+            self.max_tokens = config.MODEL_MAX_TOKENS
+            self.temperature = config.MODEL_TEMPERATURE
+            self.api_type = config.MODEL_API_TYPE
+            self.api_key = config.MODEL_API_KEY
+            # self.api_version = llm_config.api_version
+            self.top_k = config.MODEL_TOP_K
+            self.top_p = config.MODEL_TOP_P
+            print(self.api_type)
 
             # 设置token计数器
             self.total_input_tokens = 0
             self.total_completion_tokens = 0
-            self.max_input_tokens = (
-                llm_config.max_input_tokens
-                if hasattr(llm_config, "max_input_tokens")
-                else None
-            )
+            self.max_input_tokens = config.MODEL_MAX_TOKENS
+      
 
             # 初始化分词器，考虑使用Qwen的
             try:
@@ -183,8 +182,7 @@ class LLM:
                 self.tokenizer = None
             except KeyError:
                 pass
-                # If the model is not in tiktoken's presets, use cl100k_base as default
-                # self.tokenizer = tiktoken.get_encoding("cl100k_base")
+    
 
             if self.api_type == "ollama":
                 self.client = ChatOllama(
@@ -195,10 +193,12 @@ class LLM:
                     # top_k=self.top_k,
                     # top_p=self.top_p
                 )
-            # elif self.api_type == "aws":
-            #     self.client = BedrockClient()
-            # else:
-            #     self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+          
+            elif self.api_type == "openai":
+                self.client = AsyncOpenAI(
+                    base_url=self.base_url,
+                    api_key=self.api_key,
+                )
 
             self.token_counter = TokenCounter(self.tokenizer)
 
@@ -292,7 +292,128 @@ class LLM:
             logger.error(f"调用出现意外：{e}")
         return response
     
+    
+    @retry_decorator
+    async def ask_v2(
+        self,
+        messages: List[Union[dict, Message]],
+        system_msgs: Optional[List[Union[dict, Message]]] = None,
+        stream: bool = True,
+        temperature: Optional[float] = None,
+    ) -> str:
+        """
+        向 LLM 发送提示并获取响应。
 
+        参数:
+        messages: 对话消息列表
+        system_msgs: 可选的系统消息，将被添加在前面
+        stream (bool): 是否以流式方式返回响应
+        temperature (float): 响应采样温度
+
+        返回:
+        str: 生成的响应文本
+
+        异常:
+        TokenLimitExceeded: 如果超过令牌限制
+        ValueError: 如果消息无效或响应为空
+        OpenAIError: 如果 API 调用在重试后失败
+        Exception: 其他意外错误
+        """
+        try:
+            # 判断模型是否是多模态模型
+            supports_images = self.model in MULTIMODAL_MODELS
+
+            # 判断是否支持多模态
+            if system_msgs:
+                system_msgs = self.format_messages(system_msgs, supports_images)
+                messages = system_msgs + self.format_messages(messages, supports_images)
+            else:
+                messages = self.format_messages(messages, supports_images)
+
+            # # Calculate input token count
+            # input_tokens = self.count_message_tokens(messages)
+
+            # # Check if token limits are exceeded
+            # if not self.check_token_limit(input_tokens):
+            #     error_message = self.get_limit_error_message(input_tokens)
+            #     # Raise a special exception that won't be retried
+            #     raise TokenLimitExceeded(error_message)
+
+            params = {
+                "model": self.model,
+                "messages": messages,
+            }
+
+            if self.model in REASONING_MODELS:
+                params["max_completion_tokens"] = self.max_tokens
+            else:
+                params["max_tokens"] = self.max_tokens
+                params["temperature"] = (
+                    temperature if temperature is not None else self.temperature
+                )
+
+            if not stream:
+                # 是否流式输出
+                response = await self.client.chat.completions.create(
+                    **params, stream=False
+                )
+
+                if not response.choices or not response.choices[0].message.content:
+                    raise ValueError("模型输出无效")
+
+                # Update token counts
+                # self.update_token_count(
+                #     response.usage.prompt_tokens, response.usage.completion_tokens
+                # )
+
+                return response.choices[0].message.content
+
+            # self.update_token_count(input_tokens)
+
+            response = await self.client.chat.completions.create(**params, stream=True)
+
+            collected_messages = []
+            completion_text = ""
+            async for chunk in response:
+                chunk_message = chunk.choices[0].delta.content or ""
+                collected_messages.append(chunk_message)
+                completion_text += chunk_message
+                print(chunk_message, end="", flush=True)
+
+            full_response = "".join(collected_messages).strip()
+            if not full_response:
+                raise ValueError("输出无效")
+
+            # estimate completion tokens for streaming response
+            # completion_tokens = self.count_tokens(completion_text)
+            # logger.info(
+            #     f"Estimated completion tokens for streaming response: {completion_tokens}"
+            # )
+            # self.total_completion_tokens += completion_tokens
+
+            return full_response
+
+        # except TokenLimitExceeded:
+        #     # Re-raise token limit errors without logging
+        #     raise
+        # except ValueError:
+        #     logger.exception(f"Validation error")
+        #     raise
+        # except OpenAIError as oe:
+        #     logger.exception(f"OpenAI API error")
+        #     if isinstance(oe, AuthenticationError):
+        #         logger.error("Authentication failed. Check API key.")
+        #     elif isinstance(oe, RateLimitError):
+        #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
+        #     elif isinstance(oe, APIError):
+        #         logger.error(f"API error: {oe}")
+        #     raise
+        except Exception:
+            logger.exception(f"Unexpected error in ask")
+            raise
+        
+        
+        
     @retry_decorator
     async def ask_stream(self, prompt:str, state: AgentState)-> BaseMessage:
         """
@@ -309,606 +430,93 @@ class LLM:
         return response
     
     
-    @retry_decorator
-    async def ask_with_images(
-        # self,
-        # messages: List[Union[dict, Message]],
-        # images: List[Union[str, dict]],
-        # system_msgs: Optional[List[Union[dict, Message]]] = None,
-        # stream: bool = False,
-        # temperature: Optional[float] = None,
-    ) -> str:
-        pass
     
 
-    # @staticmethod
-    # def format_messages(
-    #     messages: List[Union[dict, BaseMessage]], supports_images: bool = False
-    # ) -> List[dict]:
-    #     """
-    #     Format messages for LLM by converting them to OpenAI message format.
+    @staticmethod
+    def format_messages(
+        messages: List[Union[dict, BaseMessage]], supports_images: bool = False
+    ) -> List[dict]:
+        """
+        将消息格式化为符合 OpenAI 接口规范的消息格式。
 
-    #     Args:
-    #         messages: List of messages that can be either dict or Message objects
-    #         supports_images: Flag indicating if the target model supports image inputs
+        参数说明:
+            messages: 消息列表，可以是字典或 Message 对象。
+            supports_images: 标志位，指示目标模型是否支持图像输入。
 
-    #     Returns:
-    #         List[dict]: List of formatted messages in OpenAI format
+        返回值:
+            List[dict]: 以 OpenAI 格式组织的消息列表。
 
-    #     Raises:
-    #         ValueError: If messages are invalid or missing required fields
-    #         TypeError: If unsupported message types are provided
+        异常:
+            ValueError: 当消息无效或缺少必要字段时抛出。
+            TypeError: 当提供了不支持的消息类型时抛出。
 
-    #     Examples:
-    #         >>> msgs = [
-    #         ...     Message.system_message("You are a helpful assistant"),
-    #         ...     {"role": "user", "content": "Hello"},
-    #         ...     Message.user_message("How are you?")
-    #         ... ]
-    #         >>> formatted = LLM.format_messages(msgs)
-    #     """
-    #     formatted_messages = []
+        示例:
+            >>> msgs = [Message.system_message("你是一个乐于助人的助手"),
+            ...     {"role": "user", "content": "你好"},
+            ...     Message.user_message("你最近怎么样？")]
+            ...        
+            >>> formatted = LLM.format_messages(msgs)
+        """
+        formatted_messages = []
 
-    #     for message in messages:
-    #         # Convert Message objects to dictionaries
-    #         if isinstance(message, Message):
-    #             message = message.to_dict()
+        for message in messages:
+            # 将Message对象转换为字典
+            if isinstance(message, Message):
+                message = message.to_dict()
 
-    #         if isinstance(message, dict):
-    #             # If message is a dict, ensure it has required fields
-    #             if "role" not in message:
-    #                 raise ValueError("Message dict must contain 'role' field")
+            if isinstance(message, dict):
+                # 如果message是字典，则确保它包含必要的字段
+                if "role" not in message:
+                    raise ValueError("Message词典中缺少必填字段'role'")
 
-    #             # Process base64 images if present and model supports images
-    #             if supports_images and message.get("base64_image"):
-    #                 # Initialize or convert content to appropriate format
-    #                 if not message.get("content"):
-    #                     message["content"] = []
-    #                 elif isinstance(message["content"], str):
-    #                     message["content"] = [
-    #                         {"type": "text", "text": message["content"]}
-    #                     ]
-    #                 elif isinstance(message["content"], list):
-    #                     # Convert string items to proper text objects
-    #                     message["content"] = [
-    #                         (
-    #                             {"type": "text", "text": item}
-    #                             if isinstance(item, str)
-    #                             else item
-    #                         )
-    #                         for item in message["content"]
-    #                     ]
+                # 如果模型支持图像，则处理base64图片
+                if supports_images and message.get("base64_image"):
+                    # 将内容初始化或转换为适当的格式
+                    if not message.get("content"):
+                        message["content"] = []
+                    elif isinstance(message["content"], str):
+                        message["content"] = [
+                            {"type": "text", "text": message["content"]}
+                        ]
+                    elif isinstance(message["content"], list):
+                        # 将字符串项转换为文本对象
+                        message["content"] = [
+                            (
+                                {"type": "text", "text": item}
+                                if isinstance(item, str)
+                                else item
+                            )
+                            for item in message["content"]
+                        ]
 
-    #                 # Add the image to content
-    #                 message["content"].append(
-    #                     {
-    #                         "type": "image_url",
-    #                         "image_url": {
-    #                             "url": f"data:image/jpeg;base64,{message['base64_image']}"
-    #                         },
-    #                     }
-    #                 )
+                    # 向content中添加图片
+                    message["content"].append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{message['base64_image']}"},
+                        }
+                    )
+                    # 删除base64_image字段，目的是减少占用
+                    del message["base64_image"]
+                    
+                # 如果模型不支持图片，则删除base64图片
+                elif not supports_images and message.get("base64_image"):
+                    del message["base64_image"]
 
-    #                 # Remove the base64_image field
-    #                 del message["base64_image"]
-    #             # If model doesn't support images but message has base64_image, handle gracefully
-    #             elif not supports_images and message.get("base64_image"):
-    #                 # Just remove the base64_image field and keep the text content
-    #                 del message["base64_image"]
+                if "content" in message or "tool_calls" in message:
+                    formatted_messages.append(message)
+                # else: do not include the message
+            else:
+                # raise TypeError(f"Unsupported message type: {type(message)}")
+                raise TypeError(f"不支持的消息类型: {type(message)}")
 
-    #             if "content" in message or "tool_calls" in message:
-    #                 formatted_messages.append(message)
-    #             # else: do not include the message
-    #         else:
-    #             raise TypeError(f"Unsupported message type: {type(message)}")
+        # 验证所有消息都有必需的字段
+        # for msg in formatted_messages:
+        #     if msg["role"] not in ROLE_VALUES:
+        #         raise ValueError(f"无效角色: {msg['role']}")
 
-    #     # Validate all messages have required fields
-    #     for msg in formatted_messages:
-    #         if msg["role"] not in ROLE_VALUES:
-    #             raise ValueError(f"Invalid role: {msg['role']}")
+        return formatted_messages
 
-    #     return formatted_messages
-    # @staticmethod
-    # def format_messages(
-    #     messages: List[Union[dict, Message]], supports_images: bool = False
-    # ) -> List[dict]:
-    #     """
-    #     Format messages for LLM by converting them to OpenAI message format.
 
-    #     Args:
-    #         messages: List of messages that can be either dict or Message objects
-    #         supports_images: Flag indicating if the target model supports image inputs
-
-    #     Returns:
-    #         List[dict]: List of formatted messages in OpenAI format
-
-    #     Raises:
-    #         ValueError: If messages are invalid or missing required fields
-    #         TypeError: If unsupported message types are provided
-
-    #     Examples:
-    #         >>> msgs = [
-    #         ...     Message.system_message("You are a helpful assistant"),
-    #         ...     {"role": "user", "content": "Hello"},
-    #         ...     Message.user_message("How are you?")
-    #         ... ]
-    #         >>> formatted = LLM.format_messages(msgs)
-    #     """
-    #     formatted_messages = []
-
-    #     for message in messages:
-    #         # Convert Message objects to dictionaries
-    #         if isinstance(message, Message):
-    #             message = message.to_dict()
-
-    #         if isinstance(message, dict):
-    #             # If message is a dict, ensure it has required fields
-    #             if "role" not in message:
-    #                 raise ValueError("Message dict must contain 'role' field")
-
-    #             # Process base64 images if present and model supports images
-    #             if supports_images and message.get("base64_image"):
-    #                 # Initialize or convert content to appropriate format
-    #                 if not message.get("content"):
-    #                     message["content"] = []
-    #                 elif isinstance(message["content"], str):
-    #                     message["content"] = [
-    #                         {"type": "text", "text": message["content"]}
-    #                     ]
-    #                 elif isinstance(message["content"], list):
-    #                     # Convert string items to proper text objects
-    #                     message["content"] = [
-    #                         (
-    #                             {"type": "text", "text": item}
-    #                             if isinstance(item, str)
-    #                             else item
-    #                         )
-    #                         for item in message["content"]
-    #                     ]
-
-    #                 # Add the image to content
-    #                 message["content"].append(
-    #                     {
-    #                         "type": "image_url",
-    #                         "image_url": {
-    #                             "url": f"data:image/jpeg;base64,{message['base64_image']}"
-    #                         },
-    #                     }
-    #                 )
-
-    #                 # Remove the base64_image field
-    #                 del message["base64_image"]
-    #             # If model doesn't support images but message has base64_image, handle gracefully
-    #             elif not supports_images and message.get("base64_image"):
-    #                 # Just remove the base64_image field and keep the text content
-    #                 del message["base64_image"]
-
-    #             if "content" in message or "tool_calls" in message:
-    #                 formatted_messages.append(message)
-    #             # else: do not include the message
-    #         else:
-    #             raise TypeError(f"Unsupported message type: {type(message)}")
-
-    #     # Validate all messages have required fields
-    #     for msg in formatted_messages:
-    #         if msg["role"] not in ROLE_VALUES:
-    #             raise ValueError(f"Invalid role: {msg['role']}")
-
-    #     return formatted_messages
+ 
     
-
-    # @retry(
-    #     wait=wait_random_exponential(min=1, max=60),
-    #     stop=stop_after_attempt(6),
-    #     retry=retry_if_exception_type(
-    #         (Exception, ValueError)
-    #     ),  # Don't retry TokenLimitExceeded
-    # )
-    # async def ask(
-    #     self,
-    #     messages: List[Union[dict, Message]],
-    #     system_msgs: Optional[List[Union[dict, Message]]] = None,
-    #     stream: bool = True,
-    #     temperature: Optional[float] = None,
-    # ) -> str:
-    #     """
-    #     根据问题进行回答.
-
-    #     Args:
-    #         messages: 多轮对话List
-    #         system_msgs: 系统消息，可选
-    #         stream (bool): 是否流式返回
-    #         temperature (float): 采样温度
-
-    #     Returns:
-    #         str: 流式/非流式返回content
-
-    #     Raises:
-    #         TokenLimitExceeded: Token数量返回上限
-    #     """
-    #     try:
-    #         # 是否支持图像，一般是支持吗，后续是否会支持
-    #         supports_images = self.model in MULTIMODAL_MODELS
-
-    #         # 格式化消息
-    #         if system_msgs:
-    #             system_msgs = self.format_messages(system_msgs, supports_images)
-    #             messages = system_msgs + self.format_messages(messages, supports_images)
-    #         else:
-    #             messages = self.format_messages(messages, supports_images)
-
-    #         # 计算输入Token
-    #         input_tokens = self.count_message_tokens(messages)
-
-    #         # 检测是否超过token上限
-    #         if not self.check_token_limit(input_tokens):
-    #             error_message = self.get_limit_error_message(input_tokens)
-    #             # Raise a special exception that won't be retried
-    #             raise TokenLimitExceeded(error_message)
-
-    #         params = {
-    #             "model": self.model,
-    #             "messages": messages,
-    #         }
-
-    #         if self.model in REASONING_MODELS:
-    #             params["max_completion_tokens"] = self.max_tokens
-    #         else:
-    #             params["max_tokens"] = self.max_tokens
-    #             params["temperature"] = (
-    #                 temperature if temperature is not None else self.temperature
-    #             )
-
-    #         if not stream:
-    #             # Non-streaming request
-    #             response:BaseMessage = await self.client.invoke(
-    #                 **params, stream=False
-    #             )
-
-    #             if not response.content or not response.response_metadata:
-    #                 raise ValueError("无效回答")
-
-    #             # # Update token counts
-    #             # self.update_token_count(
-    #             #     response.usage.prompt_tokens, response.usage.completion_tokens
-    #             # )
-
-    #             # return response.choices[0].message.content
-    #             return response.content
-
-    #         # Streaming request, For streaming, update estimated token count before making the request
-    #         # self.update_token_count(input_tokens)
-
-    #         # response = await self.client.chat.completions.create(**params, stream=True)
-    #         response:BaseMessage = await self.client.invoke(**params, stream=True)
-
-    #         collected_messages = []
-    #         completion_text = ""
-    #         async for chunk in response.content:
-    #             chunk_message = chunk or ""
-    #             collected_messages.append(chunk_message)
-    #             completion_text += chunk_message
-    #             print(chunk_message, end="", flush=True)
-
-    #         print()  # Newline after streaming
-    #         full_response = "".join(collected_messages).strip()
-    #         if not full_response:
-    #             raise ValueError("Empty response from streaming LLM")
-
-    #         # estimate completion tokens for streaming response
-    #         completion_tokens = self.count_tokens(completion_text)
-    #         logger.info(
-    #             f"Estimated completion tokens for streaming response: {completion_tokens}"
-    #         )
-    #         self.total_completion_tokens += completion_tokens
-
-    #         return full_response
-
-    #     # except TokenLimitExceeded:
-    #     #     # Re-raise token limit errors without logging
-    #     #     raise
-    #     # except ValueError:
-    #     #     logger.exception(f"Validation error")
-    #     #     raise
-    #     # except OpenAIError as oe:
-    #     #     logger.exception(f"OpenAI API error")
-    #     #     if isinstance(oe, AuthenticationError):
-    #     #         logger.error("Authentication failed. Check API key.")
-    #     #     elif isinstance(oe, RateLimitError):
-    #     #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
-    #     #     elif isinstance(oe, APIError):
-    #     #         logger.error(f"API error: {oe}")
-    #     #     raise
-    #     except Exception:
-    #         logger.exception(f"Unexpected error in ask")
-    #         raise
-
-    # @retry(
-    #     wait=wait_random_exponential(min=1, max=60),
-    #     stop=stop_after_attempt(6),
-    #     retry=retry_if_exception_type(
-    #         (Exception, ValueError)
-    #     ),  # Don't retry TokenLimitExceeded
-    # )
-    # async def ask_with_images(
-    #     self,
-    #     messages: List[Union[dict, Message]],
-    #     images: List[Union[str, dict]],
-    #     system_msgs: Optional[List[Union[dict, Message]]] = None,
-    #     stream: bool = False,
-    #     temperature: Optional[float] = None,
-    # ) -> str:
-    #     """
-    #     多模态问答接口，支持文本和图像输入.
-
-    #     Args:
-    #         messages: 问题或者其他List
-    #         images: 图像的List，可以是base64字符串或者URL
-    #         system_msgs: Optional system messages to prepend
-    #         stream (bool): Whether to stream the response
-    #         temperature (float): Sampling temperature for the response
-
-    #     """
-    #     try:
-    #         if self.model not in MULTIMODAL_MODELS:
-    #             raise ValueError(
-    #                 f"Model {self.model} 当前模型不支持图像. 请使用以下模型 {MULTIMODAL_MODELS}"
-    #             )
-
-    #         # Format messages with image support
-    #         formatted_messages = self.format_messages(messages, supports_images=True)
-
-    #         # Ensure the last message is from the user to attach images
-    #         if not formatted_messages or formatted_messages[-1]["role"] != "user":
-    #             raise ValueError(
-    #                 "The last message must be from the user to attach images"
-    #             )
-
-    #         # Process the last user message to include images
-    #         last_message = formatted_messages[-1]
-
-    #         # Convert content to multimodal format if needed
-    #         content = last_message["content"]
-    #         multimodal_content = (
-    #             [{"type": "text", "text": content}]
-    #             if isinstance(content, str)
-    #             else content if isinstance(content, list) else []
-    #         )
-
-    #         # Add images to content
-    #         for image in images:
-    #             if isinstance(image, str):
-    #                 multimodal_content.append(
-    #                     {"type": "image_url", "image_url": {"url": image}}
-    #                 )
-    #             elif isinstance(image, dict) and "url" in image:
-    #                 multimodal_content.append({"type": "image_url", "image_url": image})
-    #             elif isinstance(image, dict) and "image_url" in image:
-    #                 multimodal_content.append(image)
-    #             else:
-    #                 raise ValueError(f"Unsupported image format: {image}")
-
-    #         # Update the message with multimodal content
-    #         last_message["content"] = multimodal_content
-
-    #         # Add system messages if provided
-    #         if system_msgs:
-    #             all_messages = (
-    #                 self.format_messages(system_msgs, supports_images=True)
-    #                 + formatted_messages
-    #             )
-    #         else:
-    #             all_messages = formatted_messages
-
-    #         # Calculate tokens and check limits
-    #         input_tokens = self.count_message_tokens(all_messages)
-    #         if not self.check_token_limit(input_tokens):
-    #             raise TokenLimitExceeded(self.get_limit_error_message(input_tokens))
-
-    #         # Set up API parameters
-    #         params = {
-    #             "model": self.model,
-    #             "messages": all_messages,
-    #             "stream": stream,
-    #         }
-
-    #         # Add model-specific parameters
-    #         if self.model in REASONING_MODELS:
-    #             params["max_completion_tokens"] = self.max_tokens
-    #         else:
-    #             params["max_tokens"] = self.max_tokens
-    #             params["temperature"] = (
-    #                 temperature if temperature is not None else self.temperature
-    #             )
-
-    #         # Handle non-streaming request
-    #         if not stream:
-    #             response = await self.client.chat.completions.create(**params)
-
-    #             if not response.choices or not response.choices[0].message.content:
-    #                 raise ValueError("Empty or invalid response from LLM")
-
-    #             self.update_token_count(response.usage.prompt_tokens)
-    #             return response.choices[0].message.content
-
-    #         # Handle streaming request
-    #         self.update_token_count(input_tokens)
-    #         response = await self.client.chat.completions.create(**params)
-
-    #         collected_messages = []
-    #         async for chunk in response:
-    #             chunk_message = chunk.choices[0].delta.content or ""
-    #             collected_messages.append(chunk_message)
-    #             print(chunk_message, end="", flush=True)
-
-    #         print()  # Newline after streaming
-    #         full_response = "".join(collected_messages).strip()
-
-    #         if not full_response:
-    #             raise ValueError("Empty response from streaming LLM")
-
-    #         return full_response
-
-    #     except TokenLimitExceeded:
-    #         raise
-    #     except ValueError as ve:
-    #         logger.error(f"Validation error in ask_with_images: {ve}")
-    #         raise
-    #     except OpenAIError as oe:
-    #         logger.error(f"OpenAI API error: {oe}")
-    #         if isinstance(oe, AuthenticationError):
-    #             logger.error("Authentication failed. Check API key.")
-    #         elif isinstance(oe, RateLimitError):
-    #             logger.error("Rate limit exceeded. Consider increasing retry attempts.")
-    #         elif isinstance(oe, APIError):
-    #             logger.error(f"API error: {oe}")
-    #         raise
-    #     except Exception as e:
-    #         logger.error(f"Unexpected error in ask_with_images: {e}")
-    #         raise
-
-    # @retry(
-    #     wait=wait_random_exponential(min=1, max=60),
-    #     stop=stop_after_attempt(6),
-    #     retry=retry_if_exception_type(
-    #         (Exception, ValueError)
-    #     ),  # Don't retry TokenLimitExceeded
-    # )
-    # async def ask_tool(
-    #     self,
-    #     messages: List[Union[dict, Message]],
-    #     system_msgs: Optional[List[Union[dict, Message]]] = None,
-    #     timeout: int = 300,
-    #     tools: Optional[List[dict]] = None,
-    #     tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,  # type: ignore
-    #     temperature: Optional[float] = None,
-    #     **kwargs,
-    # ) -> BaseMessage | None:
-    #     """
-    #     Ask LLM using functions/tools and return the response.
-
-    #     Args:
-    #         messages: List of conversation messages
-    #         system_msgs: Optional system messages to prepend
-    #         timeout: Request timeout in seconds
-    #         tools: List of tools to use
-    #         tool_choice: Tool choice strategy
-    #         temperature: Sampling temperature for the response
-    #         **kwargs: Additional completion arguments
-
-    #     Returns:
-    #         ChatCompletionMessage: The model's response
-
-    #     Raises:
-    #         TokenLimitExceeded: If token limits are exceeded
-    #         ValueError: If tools, tool_choice, or messages are invalid
-    #         OpenAIError: If API call fails after retries
-    #         Exception: For unexpected errors
-    #     """
-    #     try:
-    #         # Validate tool_choice
-    #         if tool_choice not in TOOL_CHOICE_VALUES:
-    #             raise ValueError(f"Invalid tool_choice: {tool_choice}")
-
-    #         # Check if the model supports images
-    #         supports_images = self.model in MULTIMODAL_MODELS
-
-    #         # Format messages
-    #         if system_msgs:
-    #             system_msgs = self.format_messages(system_msgs, supports_images)
-    #             messages = system_msgs + self.format_messages(messages, supports_images)
-    #         else:
-    #             messages = self.format_messages(messages, supports_images)
-
-    #         # Calculate input token count
-    #         input_tokens = self.count_message_tokens(messages)
-
-    #         # If there are tools, calculate token count for tool descriptions
-    #         tools_tokens = 0
-    #         if tools:
-    #             for tool in tools:
-    #                 tools_tokens += self.count_tokens(str(tool))
-
-    #         input_tokens += tools_tokens
-
-    #         # Check if token limits are exceeded
-    #         if not self.check_token_limit(input_tokens):
-    #             error_message = self.get_limit_error_message(input_tokens)
-    #             # Raise a special exception that won't be retried
-    #             raise TokenLimitExceeded(error_message)
-
-    #         # Validate tools if provided
-    #         if tools:
-    #             for tool in tools:
-    #                 if not isinstance(tool, dict) or "type" not in tool:
-    #                     raise ValueError("Each tool must be a dict with 'type' field")
-
-    #         # Set up the completion request
-    #         params = {
-    #             "model": self.model,
-    #             "messages": messages,
-    #             "tools": tools,
-    #             "tool_choice": tool_choice,
-    #             "timeout": timeout,
-    #             **kwargs,
-    #         }
-
-    #         # TODO 暂时不要
-    #         # if self.model in REASONING_MODELS:
-    #         #     params["max_completion_tokens"] = self.max_tokens
-    #         # else:
-    #         #     params["max_tokens"] = self.max_tokens
-    #         #     params["temperature"] = (
-    #         #         temperature if temperature is not None else self.temperature
-    #         #     )
-
-    #         params["stream"] = False  # Always use non-streaming for tool requests
-    #         response: BaseMessage = await self.client.invoke(
-    #             **params
-    #         )
-
-    #         # Check if response is valid
-    #         if not response.content or not response:
-    #             print(response)
-    #             # raise ValueError("Invalid or empty response from LLM")
-    #             return None
-
-    #         # 更新token使用统计
-    #         self.update_token_count(response.content, response.response_metadata)
-
-    #         return response.choices[0].message
-
-    #     except TokenLimitExceeded:
-    #         # Re-raise token limit errors without logging
-    #         raise
-    #     # except ValueError as ve:
-    #     #     logger.error(f"Validation error in ask_tool: {ve}")
-    #     #     raise
-    #     # except OpenAIError as oe:
-    #     #     logger.error(f"OpenAI API error: {oe}")
-    #     #     if isinstance(oe, AuthenticationError):
-    #     #         logger.error("Authentication failed. Check API key.")
-    #     #     elif isinstance(oe, RateLimitError):
-    #     #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
-    #     #     elif isinstance(oe, APIError):
-    #     #         logger.error(f"API error: {oe}")
-    #     #     raise
-    #     except Exception as e:
-    #         logger.error(f"Unexpected error in ask_tool: {e}")
-    #         raise
-
-    
-    # @retry_decorator(tries=3)
-    # async def generate(self,
-    #     messages: List[Union[dict]],
-    #     system_msgs: Optional[List[Union[dict]]] = None,
-    #     stream: bool = True,
-    #     temperature: Optional[float] = None,):
-    #     pass
-
-
-    
-
-
-    
-   
