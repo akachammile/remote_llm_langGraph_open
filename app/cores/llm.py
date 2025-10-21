@@ -9,10 +9,12 @@ from langchain_core.messages import BaseMessage, AIMessage
 from app.tools.custom_decorator_tool import retry_decorator
 from langchain_core.vectorstores import InMemoryVectorStore
 from openai import APIError, AsyncAzureOpenAI,AsyncOpenAI
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
+
 from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializable
-from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES
+from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE
 
 REASONING_MODELS = ["o1", "o3-mini"]
 MULTIMODAL_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:32b", "z-uo/qwen2.5vl_tools:7b"]
@@ -168,7 +170,6 @@ class LLM:
             # self.api_version = llm_config.api_version
             self.top_k = config.MODEL_TOP_K
             self.top_p = config.MODEL_TOP_P
-            print(self.api_type)
 
             # 设置token计数器
             self.total_input_tokens = 0
@@ -275,6 +276,137 @@ class LLM:
         model_runnable = self.wrap_model(self.client, system_prompt=prompt, state=state)
         response = await model_runnable.ainvoke(state)
         return response
+    
+    
+    @retry_decorator
+    async def ask_tool_v2(
+        self,
+        messages: List[Union[dict, Message]],
+        system_msgs: Optional[List[Union[dict, Message]]] = None,
+        timeout: int = 300,
+        tools: Optional[List[dict]] = None,
+        tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,  # type: ignore
+        temperature: Optional[float] = None,
+        **kwargs,
+    ) -> ChatCompletionMessage | None:
+        """
+        使用函数/工具向 LLM 提问并返回响应。
+
+        参数:
+        messages: 对话消息列表
+        system_msgs: 可选的系统消息，将被添加在前面
+        timeout: 请求超时时间（秒）
+        tools: 可使用的工具列表
+        tool_choice: 工具选择策略
+        temperature: 响应采样温度
+        **kwargs: 其他补全参数
+
+        返回:
+        ChatCompletionMessage: 模型生成的响应
+
+        异常:
+        TokenLimitExceeded: 如果超过令牌限制
+        ValueError: 如果 tools、tool_choice 或 messages 无效
+        OpenAIError: 如果 API 调用在重试后失败
+        Exception: 其他意外错误
+        """
+        try:
+
+            # 验证工具选择
+            if tool_choice not in TOOL_CHOICE_VALUES:
+                raise ValueError(f"Invalid tool_choice: {tool_choice}")
+
+            # Check if the model supports images
+            # 判断是否支持多模态
+            supports_images = self.model in MULTIMODAL_MODELS
+
+            # 格式化消息
+            if system_msgs:
+                system_msgs = self.format_messages(system_msgs, supports_images)
+                messages = system_msgs + self.format_messages(messages, supports_images)
+            else:
+                messages = self.format_messages(messages, supports_images)
+
+            # 计算输入的token数
+            # input_tokens = self.count_message_tokens(messages)
+
+            # 如果需要工具，计算工具描述的token数          
+            # tools_tokens = 0
+            # if tools:
+            #     for tool in tools:
+            #         tools_tokens += self.count_tokens(str(tool))
+
+            # input_tokens += tools_tokens
+
+            # # Check if token limits are exceeded
+            # if not self.check_token_limit(input_tokens):
+            #     error_message = self.get_limit_error_message(input_tokens)
+            #     # Raise a special exception that won't be retried
+            #     raise TokenLimitExceeded(error_message)
+
+            # Validate tools if provided
+            # 验证工具是否有效
+            if tools:
+                for tool in tools:
+                    if not isinstance(tool, dict) or "type" not in tool:
+                        raise ValueError("每个工具必须具备变量名Each tool must be a dict with 'type' field")
+
+            # 设置完成请求
+            params = {
+                "model": self.model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "timeout": timeout,
+                **kwargs,
+            }
+
+            if self.model in REASONING_MODELS:
+                params["max_completion_tokens"] = self.max_tokens
+            else:
+                params["max_tokens"] = self.max_tokens
+                params["temperature"] = (
+                    temperature if temperature is not None else self.temperature
+                )
+            params["stream"] = False
+            
+            # Always use non-streaming for tool requests
+            # 工具调用使用非流式接口
+            response: ChatCompletion = await self.client.chat.completions.create(
+                **params
+            )
+
+            # Check if response is valid
+            if not response.choices or not response.choices[0].message:
+                print(response)
+                # raise ValueError("Invalid or empty response from LLM")
+                return None
+
+            # Update token counts
+            self.update_token_count(
+                response.usage.prompt_tokens, response.usage.completion_tokens
+            )
+
+            return response.choices[0].message
+
+        # except TokenLimitExceeded:
+        #     # Re-raise token limit errors without logging
+        #     raise
+        except ValueError as ve:
+            logger.error(f"Validation error in ask_tool: {ve}")
+            raise
+        # except OpenAIError as oe:
+        #     logger.error(f"OpenAI API error: {oe}")
+        #     if isinstance(oe, AuthenticationError):
+        #         logger.error("Authentication failed. Check API key.")
+        #     elif isinstance(oe, RateLimitError):
+        #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
+        #     elif isinstance(oe, APIError):
+        #         logger.error(f"API error: {oe}")
+        #     raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ask_tool: {e}")
+            raise
     
 
     @retry_decorator

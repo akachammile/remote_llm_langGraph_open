@@ -243,6 +243,7 @@ class SupervisorAgent(BaseAgent):
         输出规划请严格遵循输出要求
         """
         print(f"提示出现的问题是：{state['messages'][-1].content}")
+        
         reflect_prompt = self.system_prompt + reflect_prompt + self.placehold_prompt 
         response = await self.llm.ask_tool(reflect_prompt, state)
         match = re.search(r"\{[\s\S]*\}", response.content)
@@ -262,7 +263,6 @@ class SupervisorAgent(BaseAgent):
                 supervisor_builder = StateGraph(AgentState)
                            
                 vision_subgraph = VisionAgent().build_subgraph()
-                # chat_subgraph = ChatAgent().build_subgraph()
                 doc_subgraph = DocAgent().build_subgraph()
 
                 # 添加节点
@@ -270,8 +270,8 @@ class SupervisorAgent(BaseAgent):
                 supervisor_builder.add_node("VisionAgent", vision_subgraph)
                 # supervisor_builder.add_node("ChatAgent", self.chat_node)
                 supervisor_builder.add_node("DocAgent", doc_subgraph)
-                supervisor_builder.add_node("reflection_node", self.reflect_and_replan)
-                supervisor_builder.add_node("planning_node", self.next_step)
+                # supervisor_builder.add_node("reflection_node", self.reflect_and_replan)
+                # supervisor_builder.add_node("planning_node", self.next_step)
 
                 # 添加边
                 supervisor_builder.add_edge(START, "top_level_supervisor")
@@ -287,11 +287,8 @@ class SupervisorAgent(BaseAgent):
                         "exit": END,
                     },
                 )
-                # supervisor_builder.add_edge("VisionTask", END)
                 supervisor_builder.add_edge("VisionAgent", "top_level_supervisor")
-                # # supervisor_builder.add_edge("ChatTask", END)
                 supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
-                # # supervisor_builder.add_edge("DocTask", END)
                 supervisor_builder.add_edge("DocAgent", "top_level_supervisor")
                 self._graph = supervisor_builder.compile()
                 logger.info("Supervisor状态图创建成功")
