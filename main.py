@@ -35,9 +35,9 @@ async def lifespan(app: FastAPI):
 
 def create_app():
     app = FastAPI(
-        title="settings.PROJECT_NAME",
+        title="一体机后端",
         version="v1",
-        description="settings.DESCRIPTION",
+        description="一体机后端自动化",
         lifespan=lifespan,
     )
 
