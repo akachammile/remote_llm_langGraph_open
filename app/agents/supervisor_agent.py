@@ -204,10 +204,10 @@ class SupervisorAgent(BaseAgent):
             new_state["next_agent"] = response["task"]["name"] 
             new_state["messages"] = response["response"]
         return new_state
-    async def chat_node(self, state: AgentState) -> AgentState:
-        """专门处理简单对话的节点，然后直接结束流程。"""
-        logger.info("💬 正在处理简单对话，流程即将结束。")
-        return state
+    # async def chat_node(self, state: AgentState) -> AgentState:
+    #     """专门处理简单对话的节点，然后直接结束流程。"""
+    #     logger.info("💬 正在处理简单对话，流程即将结束。")
+    #     return state
     async def next_step(self, state: AgentState) -> AgentState:
         """LLM-based反思机制"""
         next_step_prompt = f"""
@@ -268,7 +268,7 @@ class SupervisorAgent(BaseAgent):
                 # 添加节点
                 supervisor_builder.add_node("top_level_supervisor", self.top_level_supervisor)
                 supervisor_builder.add_node("VisionAgent", vision_subgraph)
-                supervisor_builder.add_node("ChatAgent", self.chat_node)
+                # supervisor_builder.add_node("ChatAgent", self.chat_node)
                 supervisor_builder.add_node("DocAgent", doc_subgraph)
                 supervisor_builder.add_node("reflection_node", self.reflect_and_replan)
                 supervisor_builder.add_node("planning_node", self.next_step)
@@ -280,7 +280,7 @@ class SupervisorAgent(BaseAgent):
                     self.route_next_agent,
                     {
                         "VisionAgent": "VisionAgent",
-                        "ChatAgent": "ChatAgent",
+                        # "ChatAgent": "ChatAgent",
                         "DocAgent": "DocAgent",
                         # "reflection_node": "reflection_node",
                         # "planning_node": "planning_node",
