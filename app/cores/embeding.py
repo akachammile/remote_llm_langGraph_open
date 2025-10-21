@@ -1,5 +1,5 @@
 from typing import Dict, Optional
-from app.cores.config import EmbedingSettings, config
+from app.cores.config import config
 
 # class Embeding:
 #     """设置LLM属性以及方法"""
