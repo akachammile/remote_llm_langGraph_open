@@ -1,6 +1,4 @@
-"""Collection classes for managing multiple tools."""
 from typing import Any, Dict, List
-
 from app.exceptions import ToolError
 from app.logger import logger
 from app.tools.base import BaseTool, ToolFailure, ToolResult
