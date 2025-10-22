@@ -347,7 +347,9 @@ class LLM:
             # Validate tools if provided
             # 验证工具是否有效
             if tools:
+                
                 for tool in tools:
+                    logger.info(f"Validating tools...{tool},类型为{type(tool)}")
                     if not isinstance(tool, dict) or "type" not in tool:
                         raise ValueError("每个工具必须具备变量名Each tool must be a dict with 'type' field")
 
@@ -639,13 +641,12 @@ class LLM:
                     formatted_messages.append(message)
                 # else: do not include the message
             else:
-                # raise TypeError(f"Unsupported message type: {type(message)}")
                 raise TypeError(f"不支持的消息类型: {type(message)}")
 
         # 验证所有消息都有必需的字段
-        # for msg in formatted_messages:
-        #     if msg["role"] not in ROLE_VALUES:
-        #         raise ValueError(f"无效角色: {msg['role']}")
+        for msg in formatted_messages:
+            if msg["role"] not in ROLE_VALUES:
+                raise ValueError(f"无效角色: {msg['role']}")
 
         return formatted_messages
 
