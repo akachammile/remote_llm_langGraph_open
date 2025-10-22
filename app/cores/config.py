@@ -47,7 +47,7 @@ class Config(BaseSettings):
     MODEL_TOP_P: float | None = None
     MODEL_TOP_K: int | None = None
     
-    
+    # DATABASE配置
     DB_HOST:str | None = None
     DB_PORT:str | None = None
     DB_USER:str | None = None
@@ -55,6 +55,20 @@ class Config(BaseSettings):
     DB_NAME:str | None = None
     UPLOAD_DIR:str | None = None
     
+    
+    # 分割模型配置
+    # YOLO模型分割相关参数
+    YOLO_SEGMENTATION_CONF:float | None = None
+    YOLO_SEGMENTATION_IOU:float | None = None
+    YOLO_IOU:float | None = None
+    YOLO_MASK_THRESHOLD:float | None = None
+    YOLO_USE_CUDA:bool = False
+    YOLO_MAX_DET:int | None = None
+    YOLO_AUGMENT:bool | None = None
+    YOLO_MASK_FORMAT:str | None = None
+    YOLO_SEGMENTATION_MODEL_NAME:str | None = None
+    # YOLO_SEGMENTATION_CLASSES:list[int] | None = []
+    YOLO_SEGMENTATION_OUTPUT_DIR:str | None = None
 
                 
     
@@ -160,6 +174,13 @@ class Config(BaseSettings):
     def model_path(self) -> Path:
         """获取模型存储路径"""
         model_dir = self.workspace_root / "weight"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        return model_dir
+    
+    @property
+    def file_post_process_path(self) -> Path:
+        """获取模型存储路径"""
+        model_dir = self.workspace_root / "temp"
         model_dir.mkdir(parents=True, exist_ok=True)
         return model_dir
 
