@@ -5,16 +5,18 @@ import base64
 import traceback
 from app.agents import *
 from app.logger import logger
+from pydantic import Field
 from app.rag.rewrite import cut_query
 from app.database.utils import KnowledgeFile
 from app.graphs.graph_state import AgentState
 from typing import List, Optional, Dict, Union, Set
-from langchain_core.messages import BaseMessage
-from langgraph_supervisor import create_supervisor
-
+from app.schemas.schema import Message, ToolChoice
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from app.prompts.supervisor_prompt import SYSTEM_PROMPT, TOOL_PROMPT, USER_PROMPT
+from app.tools.tool_collection import ToolCollection
+from app.tools.image_segmentation_tool import ImageSegmentationTool
+
 
 
 class SupervisorAgent(BaseAgent):
@@ -24,17 +26,20 @@ class SupervisorAgent(BaseAgent):
     tool_prompt: str = TOOL_PROMPT
     user_prompt: str = USER_PROMPT
     current_step: int = 1
+    available_tools: ToolCollection = Field(
+        default_factory=lambda: ToolCollection(
+            ImageSegmentationTool()
+        )
+    )
 
     def __init__(self):
         super().__init__()
         self._graph: Optional[CompiledStateGraph] = None
         self.agent_infos: List[Dict[str, str]] = self.get_all_agent_info()
         self.placehold_prompt: str = self._build_prompt()
-
+        
         if not self.placehold_prompt:
-            logger.warning(
-                "SupervisorAgent 初始化警告：placehold_prompt 为空，使用 fallback_prompt"
-            )
+            logger.warning("SupervisorAgent 初始化警告：placehold_prompt 为空，使用 fallback_prompt")
             self.placehold_prompt = ""
 
         self.chat_history: str = ""
@@ -134,9 +139,7 @@ class SupervisorAgent(BaseAgent):
                     if extension in IMAGE_EXTENSIONS:
                         logger.info(f"检测到图片文件: {file_path}")
                         with open(file_path, "rb") as image_file:
-                            encoded_string = base64.b64encode(image_file.read()).decode(
-                                "utf-8"
-                            )
+                            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
 
             state: AgentState = {
                 "question": message,
@@ -170,40 +173,51 @@ class SupervisorAgent(BaseAgent):
     async def top_level_supervisor(self, state: AgentState) -> AgentState:  # type: ignore
         """顶层Supervisor节点, 决定下一个子Agent"""
         # TODO: 需要添加循环判断，比如字节点任务完成后，若是返回Supervisor节点时候，需要增加额外的过滤条件，不可以一直循环的走Supervisor
-        state.setdefault("history", [])
-        state.setdefault("sub_task", [])
-        state["history"].append(state.get("next_agent", "SupervisorAgent"))
+        # state.setdefault("history", [])
+        # state.setdefault("sub_task", [])
+        # state["history"].append(state.get("next_agent", "SupervisorAgent"))
         
-        if state.get("sub_task"):
-            logger.info("🤔 正在思考下一步任务")
-            state = await self.next_step(state)
-            return state
-            
+        # if state.get("sub_task"):
+        #     logger.info("🤔 正在思考下一步任务")
+        #     state = await self.next_step(state)
+        #     return state
+        
+        user_message = Message.user_message(content=state["question"], base64_image=state["image_data"])
+        system_message = Message.system_message(self.system_prompt)
+
+        response = await self.llm.ask_tool_v2(
+            messages=[user_message],
+            system_msgs=[system_message],
+            tools=self.available_tools.to_params(),
+            tool_choice=ToolChoice.AUTO,
+        )
+        logger.info(f"🤔 思考结果为: {response}")
         # 🧱 构建输入消息（仅首次或重新规划时使用）
-        if not state.get("messages"):  # 如果没有现成上下文，则用基础 prompt
-            user_message = self.user_prompt.format(query=state["question"])
-            messages = self.system_prompt + self.placehold_prompt + user_message
-        else:
-            # 否则保留已有上下文，让模型接着上次状态思考
-            messages = self.system_prompt + self.placehold_prompt + \
-                str(state["messages"][-1].content)
-        response = await self.llm.ask_tool(messages, state)
-        json_str = response.content
-        match = re.search(r"\{[\s\S]*\}", json_str)
-        if match:
-            json_str = match.group(0)
-        response = json.loads(json_str)
-        new_state = state.copy()
+        # if not state.get("messages"):  # 如果没有现成上下文，则用基础 prompt
+        #     user_message = self.user_prompt.format(query=state["question"])
+        #     messages = self.system_prompt + self.placehold_prompt + user_message
+        # else:
+        #     # 否则保留已有上下文，让模型接着上次状态思考
+        #     messages = self.system_prompt + self.placehold_prompt + \
+        #         str(state["messages"][-1].content)
+        # # response = await self.llm.ask_tool(messages, state)
+        # response = await self.llm.ask_tool_v2(messages, state)
+        # json_str = response.content
+        # match = re.search(r"\{[\s\S]*\}", json_str)
+        # if match:
+        #     json_str = match.group(0)
+        # response = json.loads(json_str)
+        # new_state = state.copy()
         
-        if response["task"]["name"]  == "ChatAgent":
-        # 如果是简单对话，直接更新 messages 并准备结束
-            new_state["next_agent"] = "exit"      # 下一步直接结束            new_state["messages"] = description  # 将回答放入 messages
-            new_state["messages"] = response["response"]  # 将回答放入 messages
-        else:
-            # 如果是工具调用，正常分发
-            new_state["next_agent"] = response["task"]["name"] 
-            new_state["messages"] = response["response"]
-        return new_state
+        # if response["task"]["name"]  == "ChatAgent":
+        # # 如果是简单对话，直接更新 messages 并准备结束
+        #     new_state["next_agent"] = "exit"      # 下一步直接结束            new_state["messages"] = description  # 将回答放入 messages
+        #     new_state["messages"] = response["response"]  # 将回答放入 messages
+        # else:
+        #     # 如果是工具调用，正常分发
+        #     new_state["next_agent"] = response["task"]["name"] 
+        #     new_state["messages"] = response["response"]
+        # return new_state
     # async def chat_node(self, state: AgentState) -> AgentState:
     #     """专门处理简单对话的节点，然后直接结束流程。"""
     #     logger.info("💬 正在处理简单对话，流程即将结束。")
@@ -288,7 +302,7 @@ class SupervisorAgent(BaseAgent):
                     },
                 )
                 supervisor_builder.add_edge("VisionAgent", "top_level_supervisor")
-                supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
+                # supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
                 supervisor_builder.add_edge("DocAgent", "top_level_supervisor")
                 self._graph = supervisor_builder.compile()
                 logger.info("Supervisor状态图创建成功")
