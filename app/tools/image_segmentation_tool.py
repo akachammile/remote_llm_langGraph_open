@@ -3,96 +3,122 @@ import cv2
 import base64
 import numpy as np
 from PIL import Image
+from pathlib import Path
 from typing import Literal
 from ultralytics import YOLO
 from app.logger import logger
+from datetime import datetime
+from pydantic import PrivateAttr
 from app.cores.config import config
-from langchain_core.tools import tool
+from app.tools.base import BaseTool, ToolFailure, ToolResult
+
+_IMAGE_SEGMENTATION_TOOL = """
+执行图像分割任务，将输入图像划分为不同的实例对象。
+可用于识别前景、背景及各类目标，输出分割掩膜或可视化结果。
+输入图像路径或Base64编码,返回分割结果及元数据。
+"""
 
 
-class ImageSegmentationTool:
+class ImageSegmentationTool(BaseTool):
+    name: str = "image_segmentation"
+    description: str = _IMAGE_SEGMENTATION_TOOL
+    parameters: dict = {
+        "type": "object",
+        "properties": {
+            "image_data": {
+                "type": "bytes",
+                "description": "图像的Base64编码（可选，如果提供image_path则可不传）。"
+            },
+            "image_path": {
+                "type": "str",
+                "description": "输入图像文件路径（可选，如果提供image_data则可不传）。"
+            },
+            "image_format": {
+                "type": "str",
+                "enum": ["jpg", "png", "bmp", "tif"],
+                "description": "图像格式，默认 'jpg'。"
+            }
+        },
+        "required": ["image_data"]  # image_data和image_path二选一，可在方法里做校验
+    }
+    model_path: str = config.model_path / config.YOLO_SEGMENTATION_MODEL_NAME
+    conf: float = config.YOLO_SEGMENTATION_CONF
+    iou: float = config.YOLO_SEGMENTATION_IOU
+    output_path: str = config.file_post_process_path / config.YOLO_SEGMENTATION_OUTPUT_DIR
+    # def __init__(self):
+    #     # 使用支持分割的YOLO模型
+    #     super().__init__()
+    #     model_path = config.model_path / config.YOLO_SEGMENTATION_MODEL_NAME
+    #     self._model  = YOLO(model_path)
+    #     self.conf = config.YOLO_SEGMENTATION_CONF
+    #     self.iou = config.YOLO_SEGMENTATION_IOU
+    #     self.output_path = config.file_post_process_path / config.YOLO_SEGMENTATION_OUTPUT_DIR
+    #     if not self.output_path.exists():
+    #         self.output_path.mkdir(parents=True, exist_ok=True)
+    #         logger.info(f"分割图像输出目录不存在，已自动创建: {self.output_path}")    
 
-    def __init__(self):
-        # 使用支持分割的YOLO模型
-        model_path = config.model_path / "yolov8n-seg.pt"
-        self.model = YOLO(model_path)
+    
 
-    def _image_to_bytes(self, image: np.ndarray, format: str = 'jpg') -> bytes:
+    def execute(self, image_data: bytes, image_path: str, image_format: str = "jpg") -> tuple[bytes, list, str]:
+        """
+        执行图像分割任务。
+        Returns:
+            tuple[bytes, list, str]: 分割后的图像bytes、分割信息列表和保存路径。
+        """
+        # === Step 1: Base64 转 numpy 图像 ===
+        img_bytes = base64.b64decode(image_data)
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        model = YOLO(self.model_path)
+        # === Step 2: YOLO 分割推理 ===
+        results = model.predict(
+            source=image,
+            conf=self.conf,
+            iou=self.iou,
+            save=False
+        )
+
+        result = results[0]
+        segmented_image = result.plot()  # 带mask、框、label的图像
+        segmentation_info = []
+
+        # === Step 3: 提取检测结果 ===
+        for box in result.boxes:
+            cls_id = int(box.cls.cpu().numpy())
+            conf = float(box.conf.cpu().numpy())
+            label = result.names[cls_id]
+            xyxy = box.xyxy.cpu().numpy().tolist()[0]
+
+            segmentation_info.append({
+                "class_id": cls_id,
+                "class_name": label,
+                "confidence": conf,
+                "bbox": xyxy
+            })
+
+        # === Step 4: 动态生成输出路径 ===
+        if not self.output_path.exists():
+            self.output_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"分割图像输出目录不存在，已自动创建: {self.output_path}")    
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        image_stem = Path(image_path).stem if image_path else "input"
+        image_stem = f"{image_stem}_{timestamp}"
+        save_path = self.output_path / f"{image_stem}_seg.{image_format}"
+
+        cv2.imwrite(str(save_path), segmented_image)
+        logger.info(f"分割结果已保存: {save_path}")
+
+        # === Step 5: 转 bytes 返回 ===
+        segmented_bytes = self._image_to_bytes(segmented_image, image_format)
+        return segmented_bytes, segmentation_info, str(save_path)
+
+    @staticmethod
+    def _image_to_bytes(image: np.ndarray, format: str = "jpg") -> bytes:
         """将numpy图像转换为bytes"""
-        # OpenCV使用BGR，转换为RGB
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # 转换为PIL图像
         pil_image = Image.fromarray(image_rgb)
-        
-        # 保存到内存
         buffer = io.BytesIO()
-        
-        # Pillow uses 'JPEG' for .jpg files
-        save_format = 'jpeg' if format.lower() in ['jpg', 'jpeg'] else format
-            
+        save_format = "jpeg" if format.lower() in ["jpg", "jpeg"] else format
         pil_image.save(buffer, format=save_format)
         buffer.seek(0)
-        
         return buffer.getvalue()
-        
-    def segment_image(self, image_data: bytes, image_path:str, image_format: str = "jpg") -> tuple[bytes, list, str]:
-        """执行图像分割"""
-        # 将bytes转换为numpy数组
-        img_bytes = base64.b64decode(image_data)  # 得到原始图片二进制bytes
-
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)        
-        # YOLO分割推理
-        results = self.model(source=image, conf=0.2)
-        
-        # 创建分割后的图像
-        segmented_image = image.copy()
-        segmentation_info = []
-        # TODO 这里需要修改，路径不可写死
-        path = r"E:\\1_LLM_PROJECT\\remote_llm_langGraph\\"+ image_path+"__result." + image_format
-        for result in results:
-            if result.masks is not None:
-                masks = result.masks.data.cpu().numpy()
-                boxes = result.boxes.xyxy.cpu().numpy()
-                classes = result.boxes.cls.cpu().numpy()
-                confidences = result.boxes.conf.cpu().numpy()
-                
-                for i, (mask, box, cls, conf) in enumerate(zip(masks, boxes, classes, confidences)):
-                    class_name = result.names[int(cls)]
-                    
-                    
-                    # 应用分割掩码
-                    mask_resized = cv2.resize(mask, (image.shape[1], image.shape[0]))
-                    mask_3d = np.stack([mask_resized] * 3, axis=2)
-                    
-                    # 为每个分割对象生成随机颜色
-                    color = np.random.randint(0, 255, 3)
-                    colored_mask = mask_3d * color
-                    
-                    # 将分割结果叠加到原图
-                    segmented_image = cv2.addWeighted(segmented_image, 1, colored_mask.astype(np.uint8), 0.5, 0)
-                    
-                    # 绘制边界框和标签
-                    x1, y1, x2, y2 = map(int, box)
-                    cv2.rectangle(segmented_image, (x1, y1), (x2, y2), color.tolist(), 2)
-                    
-                    # 添加标签
-                    label = f"{class_name} {conf:.2f}"
-                    cv2.putText(segmented_image, label, (x1, y1-10), 
-                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, color.tolist(), 2)
-                    cv2.imwrite(path, segmented_image)
-
-                    segmentation_info.append({
-                        'class': class_name,
-                        'confidence': float(conf),
-                        'bbox': [float(x1), float(y1), float(x2), float(y2)],
-                        'mask': mask_resized.tolist()
-                    })
-        cv2.imwrite(path, segmented_image)
-        # 将分割后的图像转换为bytes
-        segmented_bytes = self._image_to_bytes(segmented_image, image_format)
-        
-        return segmented_bytes, segmentation_info, path
-    
-    
