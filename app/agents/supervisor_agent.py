@@ -16,7 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 from app.prompts.supervisor_prompt import SYSTEM_PROMPT, TOOL_PROMPT, USER_PROMPT
 from app.tools.tool_collection import ToolCollection
 from app.tools.image_segmentation_tool import ImageSegmentationTool
-
+from app.tools.file_process_tool import FileProcessTool
 
 
 class SupervisorAgent(BaseAgent):
@@ -28,7 +28,7 @@ class SupervisorAgent(BaseAgent):
     current_step: int = 1
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
-            ImageSegmentationTool()
+            ImageSegmentationTool(), FileProcessTool()
         )
     )
 
@@ -125,9 +125,9 @@ class SupervisorAgent(BaseAgent):
             self._graph = await self.create_supervisor_graph()
 
         # 更新记忆库
-        if message:
-            self.update_agent_memory(role="user", content=message)
-            logger.info(f"总体记忆:{self.memory.messages}")
+        # if message:
+        #     self.update_agent_memory(role="user", content=message)
+        #     logger.info(f"总体记忆:{self.memory.messages}")
 
         try:
             if file_list:
@@ -137,7 +137,6 @@ class SupervisorAgent(BaseAgent):
                     )  # 在循环内获取扩展名
                     extension = extension.lower().lstrip(".")
                     if extension in IMAGE_EXTENSIONS:
-                        logger.info(f"检测到图片文件: {file_path}")
                         with open(file_path, "rb") as image_file:
                             encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
 
@@ -184,14 +183,31 @@ class SupervisorAgent(BaseAgent):
         
         user_message = Message.user_message(content=state["question"], base64_image=state["image_data"])
         system_message = Message.system_message(self.system_prompt)
-
         response = await self.llm.ask_tool_v2(
             messages=[user_message],
             system_msgs=[system_message],
             tools=self.available_tools.to_params(),
             tool_choice=ToolChoice.AUTO,
         )
-        logger.info(f"🤔 思考结果为: {response}")
+        logger.info(f"🤔 思考结果为: {response.content}")
+        logger.info(f"🔧 调用工具为: {response.tool_calls}")
+        if response.tool_calls:
+            for tool in response.tool_calls:
+                tool_name = tool.function.name if tool.function.name else None
+                if tool_name == "image_segmentation":
+                    segmentation_tool = self.available_tools.get_tool("image_segmentation")
+                    params = {
+                        "image_data": state["image_data"],
+                        "image_path": state["image_path"],
+                        "state":state
+                        }
+                    segmented_bytes, segmentation_info, save_path = segmentation_tool.execute(**params)
+                    logger.info(f"图片分割结果为: {save_path}")
+                    logger.info(f"state: {state["sub_task"]}")
+                    
+                    
+        
+        
         # 🧱 构建输入消息（仅首次或重新规划时使用）
         # if not state.get("messages"):  # 如果没有现成上下文，则用基础 prompt
         #     user_message = self.user_prompt.format(query=state["question"])
