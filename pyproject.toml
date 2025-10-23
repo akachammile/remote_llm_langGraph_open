@@ -1,0 +1,47 @@
+[project]
+name = "remote-llm-langGrap-open"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "argparse>=1.4.0",
+    "chardet>=5.2.0",
+    "fastapi>=0.116.1",
+    "ipython>=9.4.0",
+    "jieba>=0.42.1",
+    "langchain-community>=0.3.28",
+    "langchain-ollama>=0.3.6",
+    "langgraph>=0.6.2",
+    "langgraph-supervisor>=0.0.29",
+    "loguru>=0.7.3",
+    "memoization>=0.4.0",
+    "openai>=2.6.0",
+    "opencv-python>=4.12.0.88",
+    "pandas>=2.3.1",
+    "pymilvus>=2.6.1",
+    "pymysql>=1.1.2",
+    "pysocks>=1.7.1",
+    "python-docx>=1.2.0",
+    "python-dotenv>=1.1.1",
+    "python-multipart>=0.0.20",
+    "rapidocr-onnxruntime>=1.4.4",
+    "redis>=6.4.0",
+    "ruamel-yaml>=0.18.15",
+    "socksio>=1.0.0",
+    "streamlit>=1.48.1",
+    "tenacity>=9.1.2",
+    "ultralytics>=8.3.176",
+    "unstructured>=0.18.14",
+    "uvicorn>=0.35.0",
+]
+
+
+[[tool.uv.index]]
+url = "http://mirrors.aliyun.com/pypi/simple/"
+default = true
+ 
+[tool.uv.pip]
+index-url = "http://mirrors.aliyun.com/pypi/simple/"
+
+

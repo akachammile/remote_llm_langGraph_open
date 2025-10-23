@@ -20,7 +20,7 @@ ENV/
 *.log
 *.tmp
 *.temp
-*.toml
+config.toml
 .env*
 # 数据和输出目录（如有）
 data/
