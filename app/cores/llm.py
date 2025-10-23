@@ -17,7 +17,7 @@ from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializa
 from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE
 
 REASONING_MODELS = ["o1", "o3-mini"]
-MULTIMODAL_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:32b", "z-uo/qwen2.5vl_tools:7b"]
+MULTIMODAL_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:32b", "z-uo/qwen2.5vl_tools:7b", "z-uo/qwen2.5vl_tools:32b"]
 
 
 class TokenCounter:
@@ -316,7 +316,6 @@ class LLM:
             if tool_choice not in TOOL_CHOICE_VALUES:
                 raise ValueError(f"Invalid tool_choice: {tool_choice}")
 
-            # Check if the model supports images
             # 判断是否支持多模态
             supports_images = self.model in MULTIMODAL_MODELS
 
@@ -344,14 +343,11 @@ class LLM:
             #     # Raise a special exception that won't be retried
             #     raise TokenLimitExceeded(error_message)
 
-            # Validate tools if provided
             # 验证工具是否有效
             if tools:
-                
                 for tool in tools:
-                    logger.info(f"Validating tools...{tool},类型为{type(tool)}")
                     if not isinstance(tool, dict) or "type" not in tool:
-                        raise ValueError("每个工具必须具备变量名Each tool must be a dict with 'type' field")
+                        raise ValueError("每个工具必须具备变量名'type'")
 
             # 设置完成请求
             params = {
@@ -372,15 +368,13 @@ class LLM:
                 )
             params["stream"] = False
             
-            # Always use non-streaming for tool requests
             # 工具调用使用非流式接口
             response: ChatCompletion = await self.client.chat.completions.create(
                 **params
             )
 
-            # Check if response is valid
+            # 判断返回值是否有效
             if not response.choices or not response.choices[0].message:
-                print(response)
                 # raise ValueError("Invalid or empty response from LLM")
                 return None
 

@@ -4,18 +4,15 @@ import base64
 import numpy as np
 from PIL import Image
 from pathlib import Path
-from typing import Literal
 from ultralytics import YOLO
 from app.logger import logger
 from datetime import datetime
-from pydantic import PrivateAttr
 from app.cores.config import config
+from app.graphs.graph_state import AgentState
 from app.tools.base import BaseTool, ToolFailure, ToolResult
 
 _IMAGE_SEGMENTATION_TOOL = """
-执行图像分割任务，将输入图像划分为不同的实例对象。
-可用于识别前景、背景及各类目标，输出分割掩膜或可视化结果。
-输入图像路径或Base64编码,返回分割结果及元数据。
+执行图像的分割任务，可用于各类图像的分割之用。
 """
 
 
@@ -23,23 +20,24 @@ class ImageSegmentationTool(BaseTool):
     name: str = "image_segmentation"
     description: str = _IMAGE_SEGMENTATION_TOOL
     parameters: dict = {
-        "type": "object",
-        "properties": {
-            "image_data": {
-                "type": "bytes",
-                "description": "图像的Base64编码（可选，如果提供image_path则可不传）。"
-            },
-            "image_path": {
-                "type": "str",
-                "description": "输入图像文件路径（可选，如果提供image_data则可不传）。"
-            },
-            "image_format": {
-                "type": "str",
-                "enum": ["jpg", "png", "bmp", "tif"],
-                "description": "图像格式，默认 'jpg'。"
-            }
+    "type": "object",
+    "properties": {
+        "image_data": {
+            "type": "string",
+            "description": "图像的Base64编码（可选，如果提供image_path则可不传）。"
         },
-        "required": ["image_data"]  # image_data和image_path二选一，可在方法里做校验
+        "image_path": {
+            "type": "string",
+            "description": "输入图像文件路径（可选，如果提供image_data则可不传）。"
+        },
+        "image_format": {
+            "type": "string",
+            "enum": ["jpg", "png", "bmp", "tif"],
+            "description": "图像格式，默认 'jpg'。"
+        }
+    },
+    "required": [],
+    "additionalProperties": False
     }
     model_path: str = config.model_path / config.YOLO_SEGMENTATION_MODEL_NAME
     conf: float = config.YOLO_SEGMENTATION_CONF
@@ -59,7 +57,7 @@ class ImageSegmentationTool(BaseTool):
 
     
 
-    def execute(self, image_data: bytes, image_path: str, image_format: str = "jpg") -> tuple[bytes, list, str]:
+    def execute(self, image_data: bytes, image_path: str, state: AgentState, image_format: str = "jpg", ) -> tuple[bytes, list, str]:
         """
         执行图像分割任务。
         Returns:
@@ -107,6 +105,7 @@ class ImageSegmentationTool(BaseTool):
 
         cv2.imwrite(str(save_path), segmented_image)
         logger.info(f"分割结果已保存: {save_path}")
+        state["sub_task"] = f"分割结果已保存: {save_path}"
 
         # === Step 5: 转 bytes 返回 ===
         segmented_bytes = self._image_to_bytes(segmented_image, image_format)

@@ -97,7 +97,7 @@ class Message(BaseModel):
     tool_calls: Optional[List[ToolCall]] = Field(description="调用的工具函数", default=None)
 
     tool_call_id: Optional[str] = Field(default=None)
-    base64_image: Optional[str] = Field(default=None)
+    base64_image: Optional[str] = Field(description="附带的图像", default=None)
 
     run_id: str | None = Field(
         description="对话id",
