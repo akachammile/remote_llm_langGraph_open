@@ -180,7 +180,7 @@ class Config(BaseSettings):
     @property
     def file_post_process_path(self) -> Path:
         """获取模型存储路径"""
-        model_dir = self.workspace_root / "temp"
+        model_dir = Path("..") / self.workspace_root / "temp"
         model_dir.mkdir(parents=True, exist_ok=True)
         return model_dir
 
