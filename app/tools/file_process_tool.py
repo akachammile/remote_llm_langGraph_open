@@ -19,10 +19,8 @@ from docx.oxml.ns import qn
 from app.cores.config import config
 from app.tools.base import BaseTool, ToolFailure, ToolResult
 
-_FILE_PROCESS_TOOL = """
-执行DOCX文档分析和填充任务，根据输入的文档模板内容，自动识别文档中的标题信息，并结合模型生成的内容，对文档进行智能填充。
-输入可以是文档路径或文本内容，输出包含填充后的文档及相关元数据。
-"""
+_FILE_PROCESS_TOOL = "用于处理 DOCX 文档。功能是根据已经内置的模板路径和用户需求，智能生成内容并填充文档，生成最终的 DOCX 文件。"
+
 
 class FileProcessTool(BaseTool):
     name: str = "file_process_tool"
@@ -59,8 +57,8 @@ class FileProcessTool(BaseTool):
     # output_path: str = (
     #     config.file_post_process_path / config.YOLO_SEGMENTATION_OUTPUT_DIR
     # )
- 
-    def execute(self, doc_template_path:str, image_content: str, title: str):
+
+    def execute(self, doc_template_path: str, image_content: str, title: str):
         """_summary_
 
         Args:
@@ -73,43 +71,51 @@ class FileProcessTool(BaseTool):
         logger.info(f"✅ 执行doc_agent")
         content_to_fill = image_content
         document = Document(self.doc_template)
-        cleaned_key_map = {re.sub(r'^\d+(\.\d+)*\s*', '', k).strip(): k for k in content_to_fill.keys()}
+        cleaned_key_map = {
+            re.sub(r"^\d+(\.\d+)*\s*", "", k).strip(): k for k in content_to_fill.keys()
+        }
 
         for para in document.paragraphs:
             # 只处理标题段落
-            if not para.style.name.startswith('标题'):
+            if not para.style.name.startswith("标题"):
                 continue
-            
+
             para_text_cleaned = para.text.strip()
 
             # --- 调试输出 (非常重要) ---
-            logger.debug(f"正在检查 DOCX 段落: '{para_text_cleaned}' (样式: {para.style.name})")
-            
+            logger.debug(
+                f"正在检查 DOCX 段落: '{para_text_cleaned}' (样式: {para.style.name})"
+            )
+
             # 使用清理过的文本进行匹配
             if para_text_cleaned in cleaned_key_map:
                 # 找到匹配后，使用原始的、带编号的键来获取内容
                 original_key = cleaned_key_map[para_text_cleaned]
                 content_to_add = content_to_fill[original_key]
-                
+
                 logger.info(f"✅ 找到匹配: '{para_text_cleaned}' -> 准备填充内容...")
-                
+
                 # --- 填充内容的逻辑 ---
-                new_p = OxmlElement("w:p") 
+                new_p = OxmlElement("w:p")
                 para._p.addnext(new_p)
-                new_run = new_p.makeelement(qn('w:r'))
+                new_run = new_p.makeelement(qn("w:r"))
                 new_p.append(new_run)
-                new_t = new_run.makeelement(qn('w:t'))
+                new_t = new_run.makeelement(qn("w:t"))
                 new_run.append(new_t)
-                
+
                 if isinstance(content_to_add, (dict, list)):
-                    content_to_add = json.dumps(content_to_add, ensure_ascii=False, indent=2)
+                    content_to_add = json.dumps(
+                        content_to_add, ensure_ascii=False, indent=2
+                    )
                 elif not isinstance(content_to_add, str):
                     content_to_add = str(content_to_add)
 
                 new_t.text = content_to_add
                 # new_t.text = content_to_add
             else:
-                logger.warning(f"❌ 未找到匹配: '{para_text_cleaned}' 在 {list(cleaned_key_map.keys())} 中不存在。")
+                logger.warning(
+                    f"❌ 未找到匹配: '{para_text_cleaned}' 在 {list(cleaned_key_map.keys())} 中不存在。"
+                )
         # document.save(self.output_path)
         # state["next_agent"] = "exit"
         # state["sub_task"] = "文档生成并写入任务已完成"

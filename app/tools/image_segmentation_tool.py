@@ -11,10 +11,7 @@ from app.cores.config import config
 from app.graphs.graph_state import AgentState
 from app.tools.base import BaseTool, ToolFailure, ToolResult
 
-_IMAGE_SEGMENTATION_TOOL = """
-执行图像的分割任务，可用于各类图像的分割之用。
-"""
-
+_IMAGE_SEGMENTATION_TOOL = "对输入的图像进行精确分割，用于识别和分离图像中的不同对象或区域。"
 
 class ImageSegmentationTool(BaseTool):
     name: str = "image_segmentation"
