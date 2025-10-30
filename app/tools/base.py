@@ -1,12 +1,14 @@
+from app.cores.llm import LLM
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
 
 
 class BaseTool(ABC, BaseModel):
-    name: str
-    description: str
-    parameters: Optional[dict] = None
+    name: str = Field(..., description="Tool名称")
+    description: str = Field(None, description="工具描述")
+    parameters: Optional[dict] = Field(None, description="工具参数")
+    llm: LLM = Field(default_factory=LLM, description="大模型")
 
     class Config:
         arbitrary_types_allowed = True
