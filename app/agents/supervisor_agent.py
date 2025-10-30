@@ -6,7 +6,6 @@ import traceback
 from app.agents import *
 from app.logger import logger
 from pydantic import Field
-from app.rag.rewrite import cut_query
 from app.database.utils import KnowledgeFile
 from app.graphs.graph_state import AgentState
 from typing import List, Optional, Dict, Union, Set
@@ -15,8 +14,11 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from app.prompts.supervisor_prompt import SYSTEM_PROMPT, TOOL_PROMPT, USER_PROMPT
 from app.tools.tool_collection import ToolCollection
-from app.tools.image_segmentation_tool import ImageSegmentationTool
+from app.tools.planning_tool import PlanningTool
+
 from app.tools.file_process_tool import FileProcessTool
+from app.tools.image_segmentation_tool import ImageSegmentationTool
+
 
 
 class SupervisorAgent(BaseAgent):
@@ -28,7 +30,7 @@ class SupervisorAgent(BaseAgent):
     current_step: int = 1
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
-            ImageSegmentationTool(), FileProcessTool()
+            PlanningTool(),ImageSegmentationTool(), FileProcessTool(), 
         )
     )
 
@@ -183,13 +185,14 @@ class SupervisorAgent(BaseAgent):
         
         user_message = Message.user_message(content=state["question"], base64_image=state["image_data"])
         system_message = Message.system_message(self.system_prompt)
+        logger.info(f"🤔 工具情况: {self.available_tools.to_params()}")
         response = await self.llm.ask_tool_v2(
             messages=[user_message],
             system_msgs=[system_message],
             tools=self.available_tools.to_params(),
             tool_choice=ToolChoice.AUTO,
         )
-        logger.info(f"🤔 思考结果为: {response.content}")
+        logger.info(f"🤔 思考结果为: {response}")
         logger.info(f"🔧 调用工具为: {response.tool_calls}")
         if response.tool_calls:
             for tool in response.tool_calls:
@@ -202,8 +205,20 @@ class SupervisorAgent(BaseAgent):
                         "state":state
                         }
                     segmented_bytes, segmentation_info, save_path = segmentation_tool.execute(**params)
+                    state["sub_task"].append(save_path)
                     logger.info(f"图片分割结果为: {save_path}")
                     logger.info(f"state: {state["sub_task"]}")
+                elif tool_name == "planning_tool":
+                    planning_tool = self.available_tools.get_tool(tool_name)
+                    params = {
+                        "user_message": user_message,
+                        "tools": self.available_tools.to_params()[1:],
+                        }
+                    _ = await planning_tool.execute(**params)
+                    
+                    
+
+        
                     
                     
         
