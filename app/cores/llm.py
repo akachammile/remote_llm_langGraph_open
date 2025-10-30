@@ -161,7 +161,7 @@ class LLM:
     # LLM属性初始化
     def __init__(self):
         if not hasattr(self, "client"):  # 没有llm实例则初始化一个即可
-            self.base_url = config.MODEL_BASE_URL.get_secret_value()
+            self.base_url = config.MODEL_BASE_URL
             self.model = config.MODEL_NAME
             self.max_tokens = config.MODEL_MAX_TOKENS
             self.temperature = config.MODEL_TEMPERATURE
@@ -453,6 +453,7 @@ class LLM:
 
             # 判断是否支持多模态
             if system_msgs:
+                logger.info(f"system_msgs类型: {type(system_msgs)}")
                 system_msgs = self.format_messages(system_msgs, supports_images)
                 messages = system_msgs + self.format_messages(messages, supports_images)
             else:
