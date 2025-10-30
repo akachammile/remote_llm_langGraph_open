@@ -38,8 +38,8 @@ class Config(BaseSettings):
         validate_default=False,
     )
     
-    MODEL_BASE_URL: SecretStr | None = None
-    MODEL_API_KEY: SecretStr | None = None
+    MODEL_BASE_URL: str | None = None
+    MODEL_API_KEY: str | None = None
     MODEL_API_TYPE: str | None = None
     MODEL_NAME: str | None = None
     MODEL_TEMPERATURE: float | None = None
