@@ -31,7 +31,7 @@ class PlanningTool(BaseTool):
         "additionalProperties": False,
     }
 
-    async def execute(self, user_message: Message, tools: list[dict]) -> dict:
+    async def execute(self, user_message: Message, tools: list[dict]) -> list:
         plan_results = []
         PLAN_PROMPT = f""""
         你是一个任务分解专家。你的任务是将用户提供的复杂目标分解为一系列按顺序执行的步骤。
@@ -53,7 +53,7 @@ class PlanningTool(BaseTool):
         """
         system_msgs = Message.system_message(PLAN_PROMPT)
         plan_results = await self.llm.ask_v2([user_message], system_msgs=[system_msgs])
-        logger.info(f"Plan results: {plan_results}")
+        return plan_results
         # """
         # Args:
         #     tasks: [{"tool": "segmentation_tool", "params": {...}}, ...]

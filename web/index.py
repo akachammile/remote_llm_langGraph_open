@@ -2,6 +2,9 @@ import streamlit as st
 import requests
 import json
 from typing import List, Optional, Dict
+from io import BytesIO
+from docx import Document
+import pymupdf as fitz  # PyMuPDF as 
 
 # --- 配置 & 常量 ---
 CHAT_BACKEND_URL = "http://127.0.0.1:7861/api/v1/chat/chat"
@@ -12,6 +15,22 @@ st.title("🤖 AI-Powered Agent")
 st.caption("🚀 Qwen多模态智能体, 支持问答、文档解析！")
 
 # --- API 调用函数 ---
+
+# 解析 `.docx` 文件
+def read_docx(file_bytes: bytes) -> str:
+    doc = Document(BytesIO(file_bytes))
+    text = []
+    for para in doc.paragraphs:
+        text.append(para.text)
+    return "\n".join(text)
+
+# 解析 `.pdf` 文件
+def read_pdf(file_bytes: bytes) -> str:
+    doc = fitz.open(BytesIO(file_bytes))
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
 
 # 1. 用于上传文件的函数
 def call_upload_api(files: List[st.runtime.uploaded_file_manager.UploadedFile]) -> Optional[List[str]]:
@@ -33,15 +52,12 @@ def call_upload_api(files: List[st.runtime.uploaded_file_manager.UploadedFile]) 
 def call_chat_api(query_text: str, metadata: Dict) -> Optional[str]:
     """以JSON格式调用后端的 /chat 接口。"""
     try:
-        # 直接将原生 Python 对象放入 payload
-        
         payload = {
             "query": query_text, 
             "metadata": json.dumps(metadata), # 直接传递字典
             "stream": False # 直接传递布尔值
         }
         print(payload)
-        # requests的 `json` 参数会自动处理序列化
         response = requests.post(CHAT_BACKEND_URL, json=payload, timeout=180)
 
         if response.status_code == 200:
@@ -75,18 +91,36 @@ with st.sidebar:
 current_conv = st.session_state.conversations[st.session_state.current_chat_index]
 st.header(current_conv["title"])
 
+# 显示消息历史
 for msg in current_conv["messages"]:
     with st.chat_message(msg["role"]):
         if "content" in msg:
             st.write(msg["content"])
         if "files" in msg:
             for file_info in msg["files"]:
-                st.image(file_info["data"], caption=file_info["name"], width=200)
+                file_name = file_info["name"].lower()
 
+                if file_name.endswith((".png", ".jpg", ".jpeg", ".tif")):
+                    # 图片文件
+                    st.image(file_info["data"], caption=file_info["name"], width=200)
+                elif file_name.endswith((".pdf", ".docx", ".txt")):
+                    # 文档文件，仅显示文件名和下载按钮
+                    st.markdown(f"📄 **{file_info['name']}**")
+                    st.download_button(
+                        label="⬇️ 下载文件",
+                        data=file_info["data"],
+                        file_name=file_info["name"],
+                        mime="application/octet-stream"
+                    )
+                else:
+                    st.warning(f"⚠️ 无法识别的文件类型：{file_info['name']}")
+
+
+# 处理用户输入
 if prompt_data := st.chat_input(
     "请输入消息或上传文件...", 
     accept_file="multiple", 
-    file_type=["tif", "png", "jpeg", "jpg", "docx"]
+    file_type=["tif", "png", "jpeg", "jpg", "docx", "pdf"]  # 增加对 docx 和 pdf 的支持
 ):
     user_text = prompt_data.text
     uploaded_files = prompt_data.files
@@ -98,7 +132,17 @@ if prompt_data := st.chat_input(
         with st.chat_message("user"):
             for file in uploaded_files:
                 bytes_data = file.getvalue()
-                st.image(bytes_data, caption=file.name, width=200)
+                file_type = file.type.split('/')[1].lower()
+                if file_type in ["png", "jpeg", "jpg", "tif"]:
+                    st.image(bytes_data, caption=file.name, width=200)
+                elif file_type == "docx":
+                    text = read_docx(bytes_data)
+                    st.write(f"**文件内容（{file.name}）**: \n{text[:1000]}...")  # 只展示前1000字符
+                elif file_type == "pdf":
+                    text = read_pdf(bytes_data)
+                    st.write(f"**文件内容（{file.name}）**: \n{text[:1000]}...")  # 只展示前1000字符
+                else:
+                    st.write(f"无法预览该文件：{file.name}")
                 user_message["files"].append({"name": file.name, "data": bytes_data})
     current_conv["messages"].append(user_message)
 
@@ -119,8 +163,6 @@ if prompt_data := st.chat_input(
         metadata_dict = {}
         if server_filenames:
             metadata_dict["files"] = [{"saved_path": name} for name in server_filenames]
-        
-
 
         with st.chat_message("assistant"):
             with st.spinner("AI 正在思考中..."):
@@ -132,10 +174,9 @@ if prompt_data := st.chat_input(
                     st.write(next((m["content"] for m in reversed(reply_content["messages"])), ""))
                     assistant_message = {"role": "assistant", "content": reply_content["messages"][0]["content"]}
                     current_conv["messages"].append(assistant_message)
+                
                 # 处理后的图像
-                # processed_files = reply_content['processed_image_path']
                 processed_files = reply_content.get("processed_image_path", [])
-
                 if processed_files:
                     st.write("🖼️ 处理后的图像：")
                     for file_data in processed_files:
@@ -151,7 +192,8 @@ if prompt_data := st.chat_input(
                             current_conv["processed_images"].append(file_data)
                         except Exception as e:
                             st.error(f"无法显示图像: {e}")
-                            
+
+                # 处理后的文档
                 processed_docs = reply_content.get("processed_doc_path", [])
                 if processed_docs:
                     st.write("📄 处理后的文档：")
@@ -193,16 +235,5 @@ if prompt_data := st.chat_input(
                             current_conv["processed_docs"].append(doc_path)
 
                         except Exception as e:
-                            st.error(f"无法显示或下载文档: {e}")   
+                            st.error(f"无法显示或下载文档: {e}")
 
-            # Reload processed images from conversation history
-            # if "processed_images" in current_conv:
-            #     st.write("🖼️ 历史处理图像：")
-            #     for img_data in current_conv["processed_images"]:
-            #         try:
-            #             if img_data.startswith('http'):
-            #                 st.image(img_data, caption="历史处理图像", use_column_width=True)
-            #             else:
-            #                 st.image(img_data, caption="历史处理图像", use_column_width=True)
-            #         except Exception as e:
-            #             st.error(f"无法显示历史图像: {e}")
