@@ -1,5 +1,4 @@
 # 基于LangGraph的多模态智能体项目，后续会在此基础上形成一个类似于maｕｓ的项目
-
 这是一个使用LangGraph框架构建的问答系统示例，展示了如何创建不同类型的问答图。
 
 ## 项目结构
@@ -8,7 +7,10 @@
 remote_llm/
 ├── app/
 │   ├── agents/          # 代理模块
-│   │   └── qa_agent.py # 问答代理
+│   │   ├── base.py    
+│   │   ├── chat_agent.py # 对话模块
+│   │   ├── doc_agent.py    
+│   │   └── plan_agent.py
 │   ├── graphs/          # 图模块
 │   │   ├── qa_graph.py           # 基础问答图
 │   │   └── advanced_qa_graph.py  # 进阶问答图
