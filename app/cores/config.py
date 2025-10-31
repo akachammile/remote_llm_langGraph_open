@@ -13,7 +13,7 @@ from pydantic import (
     computed_field,
 )
 
-from typing import Dict, List, Optional, Literal
+from typing import Dict, List, Optional, Literal, Tuple
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -46,6 +46,8 @@ class Config(BaseSettings):
     MODEL_MAX_TOKENS: int | None = None
     MODEL_TOP_P: float | None = None
     MODEL_TOP_K: int | None = None
+
+
     
     # DATABASE配置
     DB_HOST:str | None = None
@@ -67,8 +69,19 @@ class Config(BaseSettings):
     YOLO_AUGMENT:bool | None = None
     YOLO_MASK_FORMAT:str | None = None
     YOLO_SEGMENTATION_MODEL_NAME:str | None = None
-    # YOLO_SEGMENTATION_CLASSES:list[int] | None = []
     YOLO_SEGMENTATION_OUTPUT_DIR:str | None = None
+    
+    
+    # 知识库文档
+    #Embeding模型
+    EMBEDING_MODEL: str= "dengcao/Qwen3-Embedding-8B:Q5_K_M"
+    CHUNK_SIZE: int = 750
+    OVERLAP_SIZE: int = 150
+    VECTOR_SEARCH_TOP_K: int = 3
+    SCORE_THRESHOLD: float = 2.0
+    ZH_TITLE_ENHANCE: bool = False
+    # PDF_OCR_THRESHOLD: Tuple[float, float] = (0.6, 0.6)
+
 
                 
     
@@ -180,9 +193,17 @@ class Config(BaseSettings):
     @property
     def file_post_process_path(self) -> Path:
         """获取模型存储路径"""
-        model_dir = Path("..") / self.workspace_root / "temp"
+        model_dir = self.workspace_root / "temp"
         model_dir.mkdir(parents=True, exist_ok=True)
         return model_dir
+    
+    @property
+    def doc_pre_path(self) -> Path:
+        """获取模型存储路径"""
+        model_dir = self.workspace_root / "temp" / "doc_temp"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        return model_dir
+    
 
 
 config = Config()

@@ -3,25 +3,18 @@
 This module provides endpoints for chat interactions, including regular chat,
 streaming chat, message history management, and chat history clearing.
 """
+
 import json
 import os
+import traceback
 import shutil
 from app.logger import logger
 from fastapi import Body, Form, UploadFile, File
-from langgraph.types import Command
-from app.agents.base import BaseAgent
-from langchain_ollama import ChatOllama
-from typing import List, Literal, Optional
+from typing import List, Optional, Tuple, Dict
 
-from IPython.display import Image, display
-
-from app.graphs.graph_state import AgentState
-from app.agents.vision_agent import VisionAgent
-from langchain_core.messages import HumanMessage
-from langchain.prompts import ChatPromptTemplate
+from app.database.utils import KnowledgeFile
+from app.tools.utils import thread_pool_executor
 from app.agents.supervisor_agent import SupervisorAgent
-from langchain_core.output_parsers import StrOutputParser
-from langgraph.graph import StateGraph, MessagesState, START, END
 from fastapi import (
     APIRouter,
     Depends,
@@ -29,12 +22,70 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-
+from app.database.kb.milvus_kb_service import MilvusKBService
+from app.cores.config import config
 
 router = APIRouter()
 agent = SupervisorAgent()
 # 定义一个用于存放上传文件的目录
 UPLOAD_DIRECTORY = "temp"
+
+
+def _parse_files_in_thread(
+    files: List[Dict],
+    dir: str,
+    zh_title_enhance: bool,
+    chunk_size: int,
+    chunk_overlap: int,
+):
+    """
+    通过多线程将上传的文件保存到对应目录内。
+    生成器返回保存结果：[success or error, filename, msg, docs]
+    """
+
+    # ✅ 先把所有文件内容读出来（防止 UploadFile.file 被关闭）
+    # file_data_list = []
+    # for file in files:
+    #     file_data_list.append({
+    #         "filename": file.filename,
+    #         "content": file.file.read(),  # 读 bytes
+    #     })
+    #     file.file.close()  # 主动关闭，防止资源泄漏
+
+    # ✅ 在线程中使用 file_data，而不是 UploadFile
+    def parse_file(file_data: dict):
+        try:
+            filename = file_data["filename"]
+            file_path = os.path.join(dir, filename)
+            file_content = file_data["content"]
+
+            # 写入文件
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+
+            # 解析
+            kb_file = KnowledgeFile(filename=filename, knowledge_base_name="temp")
+            kb_file.filepath = file_path
+            docs = kb_file.file2text(
+                zh_title_enhance=zh_title_enhance,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
+            return True, filename, f"成功上传文件 {filename}", docs
+
+        except Exception as e:
+            msg = f"{filename} 文件上传失败，报错信息为: {traceback.format_exc()}"
+            logger.error(msg)
+            return False, filename, msg, []
+
+    # ✅ 正确传入 file_data_list，而不是 UploadFile 对象
+    params = [{"file_data": file_data} for file_data in files]
+
+    # ✅ 使用你自己的线程池封装执行
+    for result in thread_pool_executor(parse_file, params=params):
+        yield result
+
 
 @router.post("/chat")
 async def chat(
@@ -65,12 +116,15 @@ async def chat(
         stream_bool = stream.lower() in ("1", "true", "yes")
     else:
         stream_bool = bool(stream)
-        
+
     try:
         if metadata_dict:
-            file_list = [os.path.join(UPLOAD_DIRECTORY,file["saved_path"]) for file in metadata_dict["files"]]
-        
-        result = await agent.chat_response(message = query, file_list = file_list)
+            file_list = [
+                os.path.join(UPLOAD_DIRECTORY, file["saved_path"])
+                for file in metadata_dict["files"]
+            ]
+
+        result = await agent.chat_response(message=query, file_list=file_list)
         logger.info(result)
         return result
 
@@ -79,11 +133,34 @@ async def chat(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def get_temp_dir(id: str = None) -> Tuple[str, str]:
+    """
+    创建一个临时目录，返回（路径，文件夹名称）
+    """
+    import uuid
+
+    if id is not None:  # 如果指定的临时目录已存在，直接返回
+        path = os.path.join(config.doc_pre_path, id)
+        if os.path.isdir(path):
+            return path, id
+
+    id = uuid.uuid4().hex
+    path = os.path.join(config.doc_pre_path, id)
+    os.mkdir(path)
+    return path, id
+
+
+DOCUMENT_EXTS = {".pdf", ".docx", ".txt", ".md"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif"}
 
 
 @router.post("/upload", summary="上传文件")
 async def upload_files(
-    files: List[UploadFile] = File(..., description="一个或多个待上传的文件")
+    files: List[UploadFile] = File(..., description="一个或多个待上传的文件"),
+    prev_id: str = Form(None, description="前知识库ID"),
+    chunk_size: int = 300,
+    chunk_overlap: int = 50,
+    zh_title_enhance: bool = True,
 ):
     """
     接收一个或多个文件，并将它们保存到服务器的 'temp' 文件夹中。
@@ -93,27 +170,106 @@ async def upload_files(
     if not os.path.exists(UPLOAD_DIRECTORY):
         os.makedirs(UPLOAD_DIRECTORY)
 
+    path, id = get_temp_dir(prev_id)
     saved_filenames = []
+    uploaded_images = []
+    failed_files = []
+    documents_to_add = []
+    file_data_list = []
+    milvus_service = MilvusKBService()
+
     for file in files:
-        # 构建安全的文件路径
+
+        file_ext = os.path.splitext(file.filename)[1].lower()
         file_path = os.path.join(UPLOAD_DIRECTORY, file.filename)
-        
+        content = await file.read()  # 用异步读取
+        file_data_list.append(
+            {
+                "filename": file.filename,
+                "content": content,
+            }
+        )
+
         try:
-            # 使用 shutil.copyfileobj 来高效地保存文件，适合处理大文件
             with open(file_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             saved_filenames.append(file.filename)
         except Exception as e:
             # 如果任何一个文件保存失败，则返回错误
             raise HTTPException(
-                status_code=500, 
-                detail=f"文件 '{file.filename}' 保存失败: {e}"
+                status_code=500, detail=f"文件 '{file.filename}' 保存失败: {e}"
             )
         finally:
             # 确保关闭文件句柄
             file.file.close()
 
+        if file_ext in IMAGE_EXTS:
+            uploaded_images.append(file.filename)
+
+        elif file_ext in DOCUMENT_EXTS:
+
+            # 文档进行向量化
+            for success, file, msg, docs in _parse_files_in_thread(
+                files=file_data_list,
+                dir=path,
+                zh_title_enhance=zh_title_enhance,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            ):
+                if success:
+                    documents_to_add += docs
+                else:
+                    failed_files.append({file: msg})
+        else:
+            # 其他文件类型暂时只保存，不向量化
+            uploaded_images.append(file.filename)
+
+        if documents_to_add:
+
+            try:
+                doc_infos = milvus_service.do_add_doc(documents_to_add)
+                logger.info(f"存储的文件为: {doc_infos}")
+            except Exception as e:
+                logger.error(f"无法链接到Milvus服务器: {e}")
+
     return {
         "message": f"成功上传 {len(saved_filenames)} 个文件。",
-        "uploaded_files": saved_filenames
+        "uploaded_files": saved_filenames,
     }
+
+
+# def upload_temp_docs(
+#     files: List[UploadFile] = File(..., description="上传文件，支持多文件"),
+#     prev_id: str = Form(None, description="前知识库ID"),
+#     chunk_size: int = Form(Settings.kb_settings.CHUNK_SIZE, description="知识库中单段文本最大长度"),
+#     chunk_overlap: int = Form(Settings.kb_settings.OVERLAP_SIZE, description="知识库中相邻文本重合长度"),
+#     zh_title_enhance: bool = Form(Settings.kb_settings.ZH_TITLE_ENHANCE, description="是否开启中文标题加强"),
+# ) -> BaseResponse:
+#     """
+#     将文件保存到临时目录，并进行向量化。
+#     返回临时目录名称作为ID，同时也是临时向量库的ID。
+#     """
+#     if prev_id is not None:
+#         memo_faiss_pool.pop(prev_id)
+
+#     failed_files = []
+#     documents = []
+#     path, id = get_temp_dir(prev_id)
+#     for success, file, msg, docs in _parse_files_in_thread(
+#         files=files,
+#         dir=path,
+#         zh_title_enhance=zh_title_enhance,
+#         chunk_size=chunk_size,
+#         chunk_overlap=chunk_overlap,
+#     ):
+#         if success:
+#             documents += docs
+#         else:
+#             failed_files.append({file: msg})
+#     try:
+#         with memo_faiss_pool.load_vector_store(kb_name=id).acquire() as vs:
+#             vs.add_documents(documents)
+#     except Exception as e:
+#         logger.error(f"Failed to add documents to faiss: {e}")
+
+#     return BaseResponse(data={"id": id, "failed_files": failed_files})

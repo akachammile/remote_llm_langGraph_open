@@ -1,1 +1,3 @@
-# 这里需要封装上MRR,NDCG等算法对问题进行改写和多Query检索以提高检出的质量以及内容
+from app.rag.retrievers.base import BaseRetrieverService
+# from app.rag.retrievers.vectorstore import VectorstoreRetrieverService
+from app.rag.retrievers.milvus_vectorstore import MilvusVectorstoreRetrieverService
