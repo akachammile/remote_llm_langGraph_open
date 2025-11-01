@@ -1,141 +1,144 @@
 import os
+from typing import Any, Dict, List
 from langchain.schema import Document
-from typing import Any, Dict, List, Optional
+from langchain_ollama import OllamaEmbeddings
+from langchain_milvus import Milvus
+from pymilvus import Collection, connections, utility
 from app.cores.config import config
-from langchain_community.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import Milvus
-
-from app.rag.retrievers.milvus_vectorstore import  MilvusVectorstoreRetrieverService
+from app.logger import logger
+from app.rag.retrievers.milvus_vectorstore import MilvusVectorstoreRetrieverService
 
 
 class MilvusKBService:
-    milvus: Milvus  # milvus实体
+    milvus: Milvus
 
     def __init__(self):
-        self.kb_name = "test_kb_1"
-        self.embed_model = config.EMBEDING_MODEL
+        self.kb_name = "your_collection_name"
+        self.embed_model = config.EMBEDING_MODEL or "dengcao/Qwen3-Embedding-8B:Q5_K_M"
+        self.base_url = config.EMBEDING_MODEL_BASE_URL or "http://localhost:11434"
+        self.milvus_host = "172.18.0.207"
+        self.milvus_port = "19530"
+
+        logger.info(f"🔹 Using embedding model: {self.embed_model}")
+        self._connect_milvus()
         self.do_init()
 
-    @staticmethod
-    def get_collection(milvus_name):
-        from pymilvus import Collection
-
-        return Collection(name=milvus_name)
-
-    def get_doc_by_ids(self, ids: List[str]) -> List[Document]:
-        result = []
-        if self.milvus.col:
-            data_list = self.milvus.col.query(
-                expr=f"pk in {[int(_id) for _id in ids]}", output_fields=["*"]
+    # -----------------------
+    # Milvus Connection
+    # -----------------------
+    def _connect_milvus(self):
+        """确保 pymilvus 连接存在"""
+        alias = "default"
+        if not connections.has_connection(alias):
+            logger.info(f"🔗 Connecting pymilvus to {self.milvus_host}:{self.milvus_port}")
+            connections.connect(
+                alias=alias,
+                uri=f"http://{self.milvus_host}:{self.milvus_port}"
             )
-            for data in data_list:
-                text = data.pop("text")
-                result.append(Document(page_content=text, metadata=data))
-        return result
 
-    @staticmethod
-    def search(milvus_name, content, limit=3):
-        search_params = {
-            "metric_type": "L2",
-            "params": {"nprobe": 10},
-        }
-        c = MilvusKBService.get_collection(milvus_name)
-        return c.search(
-            content, "embeddings", search_params, limit=limit, output_fields=["content"]
+    # -----------------------
+    # Embedding function
+    # -----------------------
+    def get_embeddings(self):
+        return OllamaEmbeddings(
+            model=self.embed_model,
+            base_url=self.base_url,
         )
 
-    def do_create_kb(self) -> None:
-        pass
-
-    # def vs_type(self) -> str:
-    #     return SupportedVSType.MILVUS
-
-    def get_Embeddings(self, model_name: str):
-        embeding_model = OpenAIEmbeddings(
-            model=model_name, base_url=config.MODEL_BASE_URL, api_key="ollama"
-        )
-        return embeding_model
-
+    # -----------------------
+    # Milvus Initialization
+    # -----------------------
     def _load_milvus(self):
+        logger.info("🔹 Loading Milvus vector store...")
         self.milvus = Milvus(
-            embedding_function=self.get_Embeddings(self.embed_model),
+            embedding_function=self.get_embeddings(),
             collection_name=self.kb_name,
             connection_args={
-                "host": "172.18.0.207",
-                "port": "19530",
-                "user": "",
-                "password": "",
-                "secure": False,
+                "uri": f"http://{self.milvus_host}:{self.milvus_port}",
             },
-            index_params={"metric_type": "L2", "index_type": "HNSW"},
-            search_params={"metric_type": "L2"},
+            index_params={
+                "metric_type": "L2",
+                "index_type": "HNSW",
+                "params": {"M": 16, "efConstruction": 200},
+            },
+            search_params={
+                "metric_type": "L2",
+                "params": {"ef": 50},
+            },
             auto_id=True,
         )
+        self._ensure_collection_and_index()
 
+    def _ensure_collection_and_index(self):
+        """手动确保 collection 和 index 存在"""
+        try:
+            if not utility.has_collection(self.kb_name):
+                logger.info(f"🆕 Creating new collection {self.kb_name}...")
+                # 使用空文档触发 schema 创建
+                self.milvus.add_documents([])
+
+            collection = Collection(self.kb_name)
+            if not collection.indexes:
+                logger.info("⚙️ Creating HNSW index...")
+                collection.create_index(
+                    field_name="vector",
+                    index_params={
+                        "metric_type": "L2",
+                        "index_type": "HNSW",
+                        "params": {"M": 16, "efConstruction": 200},
+                    },
+                )
+            collection.load()
+            logger.info(f"✅ Collection {self.kb_name} is ready.")
+        except Exception as e:
+            logger.error(f"❌ Error ensuring collection/index: {e}")
+
+    # -----------------------
+    # Public Methods
+    # -----------------------
     def do_init(self):
         self._load_milvus()
 
     def do_drop_kb(self):
-        if self.milvus.col:
-            self.milvus.col.release()
-            self.milvus.col.drop()
+        """删除 collection"""
+        if utility.has_collection(self.kb_name):
+            logger.warning(f"⚠️ Dropping collection {self.kb_name}")
+            col = Collection(self.kb_name)
+            col.release()
+            col.drop()
 
-    def do_search(self, query: str, top_k: int, score_threshold: float):
-        self._load_milvus()
-        # embed_func = get_Embeddings(self.embed_model)
-        # embeddings = embed_func.embed_query(query)
-        # docs = self.milvus.similarity_search_with_score_by_vector(embeddings, top_k)
+    def do_clear_vs(self):
+        """清空向量数据库"""
+        self.do_drop_kb()
+        self.do_init()
+
+    def do_add_doc(self, docs: List[Document]) -> List[Dict]:
+        logger.info(f"📥 Adding {len(docs)} docs to {self.kb_name}")
+        # 确保 metadata 为字符串
+        for doc in docs:
+            for k, v in doc.metadata.items():
+                doc.metadata[k] = str(v)
+        ids = self.milvus.add_documents(docs)
+        return [{"id": id, "metadata": doc.metadata} for id, doc in zip(ids, docs)]
+
+    def do_search(self, query: str, top_k: int = 3, score_threshold: float = 0.5):
         retriever = MilvusVectorstoreRetrieverService.from_vectorstore(
             self.milvus,
             top_k=top_k,
             score_threshold=score_threshold,
         )
-        docs = retriever.get_relevant_documents(query)
-        return docs
+        return retriever.get_relevant_documents(query)
 
-    def do_add_doc(self, docs: List[Document], **kwargs) -> List[Dict]:
-        for doc in docs:
-            for k, v in doc.metadata.items():
-                doc.metadata[k] = str(v)
-            for field in self.milvus.fields:
-                doc.metadata.setdefault(field, "")
-            doc.metadata.pop(self.milvus._text_field, None)
-            doc.metadata.pop(self.milvus._vector_field, None)
-
-        ids = self.milvus.add_documents(docs)
-        doc_infos = [{"id": id, "metadata": doc.metadata} for id, doc in zip(ids, docs)]
-        return doc_infos
-
-    # def do_delete_doc(self, kb_file: KnowledgeFile, **kwargs):
-    #     id_list = list_file_num_docs_id_by_kb_name_and_file_name(
-    #         kb_file.kb_name, kb_file.filename
-    #     )
-    #     if self.milvus.col:
-    #         self.milvus.col.delete(expr=f"pk in {id_list}")
-
-    # Issue 2846, for windows
-    # if self.milvus.col:
-    #     file_path = kb_file.filepath.replace("\\", "\\\\")
-    #     file_name = os.path.basename(file_path)
-    #     id_list = [item.get("pk") for item in
-    #                self.milvus.col.query(expr=f'source == "{file_name}"', output_fields=["pk"])]
-    #     self.milvus.col.delete(expr=f'pk in {id_list}')
-
-    def do_clear_vs(self):
-        if self.milvus.col:
-            self.do_drop_kb()
-            self.do_init()
-
-
-# if __name__ == "__main__":
-# # 测试建表使用
-# from chatchat.server.db.base import Base, engine
-
-# Base.metadata.create_all(bind=engine)
-# milvusService = MilvusKBService("test")
-# # milvusService.add_doc(KnowledgeFile("README.md", "test"))
-
-# print(milvusService.get_doc_by_ids(["444022434274215486"]))
-# # milvusService.delete_doc(KnowledgeFile("README.md", "test"))
-# # milvusService.do_drop_kb()
-# # print(milvusService.search_docs("如何启动api服务"))
+    def get_doc_by_ids(self, ids: List[str]) -> List[Document]:
+        if not utility.has_collection(self.kb_name):
+            return []
+        collection = Collection(self.kb_name)
+        data_list = collection.query(
+            expr=f"pk in {[int(_id) for _id in ids]}",
+            output_fields=["*"],
+        )
+        result = []
+        for data in data_list:
+            text = data.pop("text", "")
+            result.append(Document(page_content=text, metadata=data))
+        return result

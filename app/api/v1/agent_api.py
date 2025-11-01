@@ -42,17 +42,6 @@ def _parse_files_in_thread(
     通过多线程将上传的文件保存到对应目录内。
     生成器返回保存结果：[success or error, filename, msg, docs]
     """
-
-    # ✅ 先把所有文件内容读出来（防止 UploadFile.file 被关闭）
-    # file_data_list = []
-    # for file in files:
-    #     file_data_list.append({
-    #         "filename": file.filename,
-    #         "content": file.file.read(),  # 读 bytes
-    #     })
-    #     file.file.close()  # 主动关闭，防止资源泄漏
-
-    # ✅ 在线程中使用 file_data，而不是 UploadFile
     def parse_file(file_data: dict):
         try:
             filename = file_data["filename"]
@@ -160,7 +149,7 @@ async def upload_files(
     prev_id: str = Form(None, description="前知识库ID"),
     chunk_size: int = 300,
     chunk_overlap: int = 50,
-    zh_title_enhance: bool = True,
+    zh_title_enhance: bool = False,
 ):
     """
     接收一个或多个文件，并将它们保存到服务器的 'temp' 文件夹中。
@@ -179,6 +168,7 @@ async def upload_files(
     milvus_service = MilvusKBService()
 
     for file in files:
+        logger.info(f"正在处理文件 {file.filename},{file}")
 
         file_ext = os.path.splitext(file.filename)[1].lower()
         file_path = os.path.join(UPLOAD_DIRECTORY, file.filename)
@@ -230,7 +220,8 @@ async def upload_files(
                 doc_infos = milvus_service.do_add_doc(documents_to_add)
                 logger.info(f"存储的文件为: {doc_infos}")
             except Exception as e:
-                logger.error(f"无法链接到Milvus服务器: {e}")
+                import traceback as tra
+                logger.error(f"无法链接到Milvus服务器: {tra.format_exc()}")
 
     return {
         "message": f"成功上传 {len(saved_filenames)} 个文件。",
@@ -238,38 +229,3 @@ async def upload_files(
     }
 
 
-# def upload_temp_docs(
-#     files: List[UploadFile] = File(..., description="上传文件，支持多文件"),
-#     prev_id: str = Form(None, description="前知识库ID"),
-#     chunk_size: int = Form(Settings.kb_settings.CHUNK_SIZE, description="知识库中单段文本最大长度"),
-#     chunk_overlap: int = Form(Settings.kb_settings.OVERLAP_SIZE, description="知识库中相邻文本重合长度"),
-#     zh_title_enhance: bool = Form(Settings.kb_settings.ZH_TITLE_ENHANCE, description="是否开启中文标题加强"),
-# ) -> BaseResponse:
-#     """
-#     将文件保存到临时目录，并进行向量化。
-#     返回临时目录名称作为ID，同时也是临时向量库的ID。
-#     """
-#     if prev_id is not None:
-#         memo_faiss_pool.pop(prev_id)
-
-#     failed_files = []
-#     documents = []
-#     path, id = get_temp_dir(prev_id)
-#     for success, file, msg, docs in _parse_files_in_thread(
-#         files=files,
-#         dir=path,
-#         zh_title_enhance=zh_title_enhance,
-#         chunk_size=chunk_size,
-#         chunk_overlap=chunk_overlap,
-#     ):
-#         if success:
-#             documents += docs
-#         else:
-#             failed_files.append({file: msg})
-#     try:
-#         with memo_faiss_pool.load_vector_store(kb_name=id).acquire() as vs:
-#             vs.add_documents(documents)
-#     except Exception as e:
-#         logger.error(f"Failed to add documents to faiss: {e}")
-
-#     return BaseResponse(data={"id": id, "failed_files": failed_files})

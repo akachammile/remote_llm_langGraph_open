@@ -28,7 +28,7 @@ class DocLoader(UnstructuredFileLoader):
                 elif isinstance(parent, _Cell):
                     parent_elm = parent._tc
                 else:
-                    raise ValueError("RapidOCRDocLoader parse fail")
+                    raise ValueError("RapidOCRDocLoader 解析失败")
 
                 for child in parent_elm.iterchildren():
                     if isinstance(child, CT_P):

@@ -74,7 +74,8 @@ class Config(BaseSettings):
     
     # 知识库文档
     #Embeding模型
-    EMBEDING_MODEL: str= "dengcao/Qwen3-Embedding-8B:Q5_K_M"
+    EMBEDING_MODEL:str | None = None
+    EMBEDING_MODEL_BASE_URL:str | None = None
     CHUNK_SIZE: int = 750
     OVERLAP_SIZE: int = 150
     VECTOR_SEARCH_TOP_K: int = 3
