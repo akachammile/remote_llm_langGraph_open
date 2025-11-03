@@ -17,7 +17,12 @@ from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializa
 from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE
 
 REASONING_MODELS = ["o1", "o3-mini"]
-MULTIMODAL_MODELS = ["qwen2.5vl:7b", "qwen2.5vl:32b", "z-uo/qwen2.5vl_tools:7b", "z-uo/qwen2.5vl_tools:32b"]
+MULTIMODAL_MODELS = ["qwen2.5vl:7b"
+                    , "qwen2.5vl:32b"
+                    , "z-uo/qwen2.5vl_tools:7b"
+                    , "z-uo/qwen2.5vl_tools:32b"
+                    , "qwen3-vl-32b-thinking"
+                    , "qwen3-vl:32b"]
 
 
 class TokenCounter:
@@ -453,7 +458,6 @@ class LLM:
 
             # 判断是否支持多模态
             if system_msgs:
-                logger.info(f"system_msgs类型: {type(system_msgs)}")
                 system_msgs = self.format_messages(system_msgs, supports_images)
                 messages = system_msgs + self.format_messages(messages, supports_images)
             else:

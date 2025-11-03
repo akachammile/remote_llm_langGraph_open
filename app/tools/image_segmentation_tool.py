@@ -11,7 +11,7 @@ from app.cores.config import config
 from app.graphs.graph_state import AgentState
 from app.tools.base import BaseTool, ToolFailure, ToolResult
 
-_IMAGE_SEGMENTATION_TOOL = "对输入的图像进行精确分割，用于识别和分离图像中的不同对象或区域。"
+_IMAGE_SEGMENTATION_TOOL = "只可用于对输入的图像进行精确分割"
 
 class ImageSegmentationTool(BaseTool):
     name: str = "image_segmentation"
@@ -21,11 +21,11 @@ class ImageSegmentationTool(BaseTool):
     "properties": {
         "image_data": {
             "type": "string",
-            "description": "图像的Base64编码（可选，如果提供image_path则可不传）。"
+            "description": "图像的Base64编码(可不传）。"
         },
         "image_path": {
             "type": "string",
-            "description": "输入图像文件路径（可选，如果提供image_data则可不传）。"
+            "description": "输入图像文件路径（可不传）。"
         },
         "image_format": {
             "type": "string",
@@ -40,17 +40,6 @@ class ImageSegmentationTool(BaseTool):
     conf: float = config.YOLO_SEGMENTATION_CONF
     iou: float = config.YOLO_SEGMENTATION_IOU
     output_path: str = config.file_post_process_path / config.YOLO_SEGMENTATION_OUTPUT_DIR
-    # def __init__(self):
-    #     # 使用支持分割的YOLO模型
-    #     super().__init__()
-    #     model_path = config.model_path / config.YOLO_SEGMENTATION_MODEL_NAME
-    #     self._model  = YOLO(model_path)
-    #     self.conf = config.YOLO_SEGMENTATION_CONF
-    #     self.iou = config.YOLO_SEGMENTATION_IOU
-    #     self.output_path = config.file_post_process_path / config.YOLO_SEGMENTATION_OUTPUT_DIR
-    #     if not self.output_path.exists():
-    #         self.output_path.mkdir(parents=True, exist_ok=True)
-    #         logger.info(f"分割图像输出目录不存在，已自动创建: {self.output_path}")    
 
     
 

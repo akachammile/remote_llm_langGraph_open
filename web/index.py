@@ -176,6 +176,7 @@ if prompt_data := st.chat_input(
                     current_conv["messages"].append(assistant_message)
                 
                 # 处理后的图像
+                
                 processed_files = reply_content.get("processed_image_path", [])
                 if processed_files:
                     st.write("🖼️ 处理后的图像：")

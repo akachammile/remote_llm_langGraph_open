@@ -192,9 +192,15 @@ class Config(BaseSettings):
         return model_dir
     
     @property
+    def temp_file_root(self) -> Path:
+        """处理后的图像存储路径"""
+        model_dir = self.workspace_root / "temp" 
+        model_dir.mkdir(parents=True, exist_ok=True)
+        return model_dir
+    @property
     def file_post_process_path(self) -> Path:
-        """获取模型存储路径"""
-        model_dir = self.workspace_root / "temp"
+        """处理后的图像存储路径"""
+        model_dir = self.workspace_root / "temp" 
         model_dir.mkdir(parents=True, exist_ok=True)
         return model_dir
     

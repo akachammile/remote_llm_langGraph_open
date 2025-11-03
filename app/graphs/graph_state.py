@@ -18,7 +18,7 @@ class AgentState(MessagesState):
     image_path: Annotated[Optional[str], None]
     image_format: Annotated[str, None]# 图像格式，如 "png", "jpg"
     image_content: Annotated[str, None]# 图像内容描述
-    processed_image_path: Union[List, str] # 分割图像存储路径
+    processed_image_path:Annotated[Optional[List[str]], None] # 分割图像存储路径
     processed_doc_path: Union[List, str]
     reflection: Annotated[Optional[bool], None]
     sub_task: Annotated[Optional[List[str]], None]

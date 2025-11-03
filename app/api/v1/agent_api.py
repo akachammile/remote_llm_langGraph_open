@@ -11,7 +11,7 @@ import shutil
 from app.logger import logger
 from fastapi import Body, Form, UploadFile, File
 from typing import List, Optional, Tuple, Dict
-
+from app.cores.config import config
 from app.database.utils import KnowledgeFile
 from app.tools.utils import thread_pool_executor
 from app.agents.supervisor_agent import SupervisorAgent
@@ -28,7 +28,7 @@ from app.cores.config import config
 router = APIRouter()
 agent = SupervisorAgent()
 # 定义一个用于存放上传文件的目录
-UPLOAD_DIRECTORY = "temp"
+UPLOAD_DIRECTORY = config.temp_file_root
 
 
 def _parse_files_in_thread(
@@ -179,25 +179,28 @@ async def upload_files(
                 "content": content,
             }
         )
+        
+        with open(file_path, "wb") as f:
+            f.write(content)
 
-        try:
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            saved_filenames.append(file.filename)
-        except Exception as e:
-            # 如果任何一个文件保存失败，则返回错误
-            raise HTTPException(
-                status_code=500, detail=f"文件 '{file.filename}' 保存失败: {e}"
-            )
-        finally:
-            # 确保关闭文件句柄
-            file.file.close()
+        saved_filenames.append(file.filename)
+        # try:
+        #     with open(file_path, "wb") as buffer:
+        #         shutil.copyfileobj(file.file, buffer)
+        #     saved_filenames.append(file.filename)
+        # except Exception as e:
+        #     # 如果任何一个文件保存失败，则返回错误
+        #     raise HTTPException(
+        #         status_code=500, detail=f"文件 '{file.filename}' 保存失败: {e}"
+        #     )
+        # finally:
+        #     # 确保关闭文件句柄
+        #     file.file.close()
 
-        if file_ext in IMAGE_EXTS:
-            uploaded_images.append(file.filename)
+        # if file_ext in IMAGE_EXTS:
+        #     uploaded_images.append(file.filename)
 
-        elif file_ext in DOCUMENT_EXTS:
-
+        if file_ext in DOCUMENT_EXTS:
             # 文档进行向量化
             for success, file, msg, docs in _parse_files_in_thread(
                 files=file_data_list,

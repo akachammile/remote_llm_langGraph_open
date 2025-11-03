@@ -20,7 +20,6 @@ class VisionAgent(BaseAgent):
         "function_name": "node_image_describe",
     }
     
-
     def route_next_agent(self, state: dict) -> str:
         # FIXME, 需要额外添加条件
         """判断路由条件，根据节点返回的内容判断下一个需要执行的节点
