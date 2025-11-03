@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional
 
 class BaseTool(ABC, BaseModel):
     name: str = Field(..., description="Tool名称")
+    parent: str = Field(None, description="所属Agent")
     description: str = Field(None, description="工具描述")
     parameters: Optional[dict] = Field(None, description="工具参数")
     llm: LLM = Field(default_factory=LLM, description="大模型")
@@ -25,6 +26,7 @@ class BaseTool(ABC, BaseModel):
         """将工具转换为参数字典"""
         return {
             "type": "function",
+            "parent": self.parent,
             "function": {
                 "name": self.name,
                 "description": self.description,

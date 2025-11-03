@@ -14,7 +14,8 @@ from app.tools.base import BaseTool, ToolFailure, ToolResult
 _IMAGE_SEGMENTATION_TOOL = "只可用于对输入的图像进行精确分割"
 
 class ImageSegmentationTool(BaseTool):
-    name: str = "image_segmentation"
+    name: str = "vision_image_segmentation"
+    parent: str = "VisionAgent"
     description: str = _IMAGE_SEGMENTATION_TOOL
     parameters: dict = {
     "type": "object",
@@ -34,7 +35,7 @@ class ImageSegmentationTool(BaseTool):
         }
     },
     "required": [],
-    "additionalProperties": False
+    "additionalProperties": False,
     }
     model_path: str = config.model_path / config.YOLO_SEGMENTATION_MODEL_NAME
     conf: float = config.YOLO_SEGMENTATION_CONF
@@ -43,7 +44,7 @@ class ImageSegmentationTool(BaseTool):
 
     
 
-    def execute(self, image_data: bytes, image_path: str, state: AgentState, image_format: str = "jpg", ) -> tuple[bytes, list, str]:
+    async def execute(self, image_data: bytes, image_path: str, state: AgentState, image_format: str = "jpg", ) -> tuple[bytes, list, str]:
         """
         执行图像分割任务。
         Returns:

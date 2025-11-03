@@ -169,12 +169,16 @@ if prompt_data := st.chat_input(
                 # 直接传递 Python 字典，而不是 str(metadata_dict)
                 reply_content = call_chat_api(user_text, metadata_dict)
                 print(reply_content, type(reply_content))
-                reply_content = json.loads(reply_content)
-                if reply_content:
-                    st.write(next((m["content"] for m in reversed(reply_content["messages"])), ""))
-                    assistant_message = {"role": "assistant", "content": reply_content["messages"][0]["content"]}
+                if reply_content is not None:
+                    reply_content = json.loads(reply_content)
+                if reply_content and reply_content.get("messages"):
+                    # first_message_content = reply_content["messages"][0].get("content", "")
+                    first_message_content = reply_content["messages"][0]
+                    st.write(first_message_content)
+                    assistant_message = {"role": "assistant", "content": first_message_content}
                     current_conv["messages"].append(assistant_message)
-                
+
+                # 处理后的图像
                 # 处理后的图像
                 
                 processed_files = reply_content.get("processed_image_path", [])

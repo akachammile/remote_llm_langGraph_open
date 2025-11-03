@@ -23,7 +23,8 @@ _FILE_PROCESS_TOOL = "用于处理 DOCX 文档。功能是根据已经内置的�
 
 
 class FileProcessTool(BaseTool):
-    name: str = "file_process"
+    name: str = "doc_file_process"
+    parent: str = "DocAgent"
     description: str = _FILE_PROCESS_TOOL
     parameters: dict = {
         "type": "object",

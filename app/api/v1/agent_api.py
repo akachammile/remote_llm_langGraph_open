@@ -22,7 +22,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-from app.database.kb.milvus_kb_service import MilvusKBService
+# from app.database.kb.milvus_kb_service import MilvusKBService
 from app.cores.config import config
 
 router = APIRouter()
@@ -165,7 +165,7 @@ async def upload_files(
     failed_files = []
     documents_to_add = []
     file_data_list = []
-    milvus_service = MilvusKBService()
+    # milvus_service = MilvusKBService()
 
     for file in files:
         logger.info(f"正在处理文件 {file.filename},{file}")
@@ -201,18 +201,19 @@ async def upload_files(
         #     uploaded_images.append(file.filename)
 
         if file_ext in DOCUMENT_EXTS:
-            # 文档进行向量化
-            for success, file, msg, docs in _parse_files_in_thread(
-                files=file_data_list,
-                dir=path,
-                zh_title_enhance=zh_title_enhance,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-            ):
-                if success:
-                    documents_to_add += docs
-                else:
-                    failed_files.append({file: msg})
+            pass
+            # # 文档进行向量化
+            # for success, file, msg, docs in _parse_files_in_thread(
+            #     files=file_data_list,
+            #     dir=path,
+            #     zh_title_enhance=zh_title_enhance,
+            #     chunk_size=chunk_size,
+            #     chunk_overlap=chunk_overlap,
+            # ):
+            #     if success:
+            #         documents_to_add += docs
+            #     else:
+            #         failed_files.append({file: msg})
         else:
             # 其他文件类型暂时只保存，不向量化
             uploaded_images.append(file.filename)

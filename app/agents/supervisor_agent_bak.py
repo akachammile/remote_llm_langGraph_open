@@ -36,8 +36,8 @@ class SupervisorAgent(BaseAgent):
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
             PlanningTool(),
-            ImageSegmentationTool(),
-            FileProcessTool(),
+            # ImageSegmentationTool(),
+            # FileProcessTool(),
         )
     )
 
@@ -121,9 +121,7 @@ class SupervisorAgent(BaseAgent):
         except Exception as e:
             logger.error(f"当前build_prompt_error错误为: {str(traceback.format_exc())}")
 
-    async def chat_response(
-        self, message: str, file_list: List[Union[str]]
-    ) -> AgentState:
+    async def chat_response(self, message: str, file_list: List[Union[str]]) -> AgentState:
         # FIXME 此处需要优化支持类型
         # result = cut_query(text=message)
 
@@ -150,9 +148,7 @@ class SupervisorAgent(BaseAgent):
                     if extension in IMAGE_EXTENSIONS:
                         with open(file_path, "rb") as image_file:
                             encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-            state: AgentState = {
-                "question": message,
-                "memory": self.chat_history,
+            state: AgentState = {"question": message,"memory": self.chat_history,
                 "image_data": encoded_string,
                 "image_format": extension,
                 "memory": self.memory.get_recent_messages(10),
