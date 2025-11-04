@@ -14,7 +14,8 @@ from typing import List, Optional, Tuple, Dict
 from app.cores.config import config
 from app.database.utils import KnowledgeFile
 from app.tools.utils import thread_pool_executor
-from app.agents.supervisor_agent import SupervisorAgent
+# from app.agents.supervisor_agent import SupervisorAgent
+from app.agents.supervisor_agent_v3 import SupervisorAgent
 from fastapi.responses import StreamingResponse
 
 from fastapi import (
@@ -115,12 +116,9 @@ async def chat(
                 for file in metadata_dict["files"]
             ]
 
-        # async def event_stream():
-        #     async for chunk in agent.chat_response(message=query, file_list=file_list):
-        #         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-
-        # return StreamingResponse(event_stream(), media_type="text/event-stream")
-        result = await agent.chat_response(message=query, file_list=file_list)
+    
+        app = await agent.create_supervisor_graph()
+        app.invoke(input={})
         logger.info(result)
         return result
 

@@ -1,11 +1,11 @@
 import math
 from app.logger import logger
 from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from app.graphs.graph_state import AgentState
 from app.cores.config import config
-from langchain_core.messages import HumanMessage
+from langchain_core.tools import BaseTool
 from typing import Dict, Any, Optional, Union, List
-from langchain_core.messages import BaseMessage, AIMessage
 from app.tools.custom_decorator_tool import retry_decorator
 from langchain_core.vectorstores import InMemoryVectorStore
 from openai import APIError, AsyncAzureOpenAI,AsyncOpenAI
@@ -14,7 +14,10 @@ from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializable
-from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE, Role
+
 
 REASONING_MODELS = ["o1", "o3-mini"]
 MULTIMODAL_MODELS = ["qwen2.5vl:7b"
@@ -201,11 +204,16 @@ class LLM:
                 )
           
             elif self.api_type == "openai":
-                self.client = AsyncOpenAI(
+                # self.client = AsyncOpenAI(
+                #     base_url=self.base_url,
+                #     api_key=self.api_key,
+                # )
+                self.client = ChatOpenAI(
+                    model=self.model,
                     base_url=self.base_url,
                     api_key=self.api_key,
                 )
-
+                
             self.token_counter = TokenCounter(self.tokenizer)
 
 
@@ -389,6 +397,83 @@ class LLM:
             )
 
             return response.choices[0].message
+
+        # except TokenLimitExceeded:
+        #     # Re-raise token limit errors without logging
+        #     raise
+        except ValueError as ve:
+            logger.error(f"Validation error in ask_tool: {ve}")
+            raise
+        # except OpenAIError as oe:
+        #     logger.error(f"OpenAI API error: {oe}")
+        #     if isinstance(oe, AuthenticationError):
+        #         logger.error("Authentication failed. Check API key.")
+        #     elif isinstance(oe, RateLimitError):
+        #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
+        #     elif isinstance(oe, APIError):
+        #         logger.error(f"API error: {oe}")
+        #     raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ask_tool: {e}")
+            raise
+
+    
+    @retry_decorator
+    async def ask_tool_v3(
+        self,
+        messages: List[Union[dict, Message]],
+        system_msgs: Optional[List[Union[dict, Message]]] = None,
+        timeout: int = 300,
+        tools: Optional[List[BaseTool]] = None,
+        tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,  # type: ignore
+        temperature: Optional[float] = None,
+        **kwargs,
+    ) -> BaseMessage | None:
+        """
+        使用函数/工具向 LLM 提问并返回响应。
+
+        参数:
+        messages: 对话消息列表
+        system_msgs: 可选的系统消息，将被添加在前面
+        timeout: 请求超时时间（秒）
+        tools: 可使用的工具列表
+        tool_choice: 工具选择策略
+        temperature: 响应采样温度
+        **kwargs: 其他补全参数
+
+        返回:
+        ChatCompletionMessage: 模型生成的响应
+
+        异常:
+        TokenLimitExceeded: 如果超过令牌限制
+        ValueError: 如果 tools、tool_choice 或 messages 无效
+        OpenAIError: 如果 API 调用在重试后失败
+        Exception: 其他意外错误
+        """
+        try:
+
+            # 验证工具选择
+            if tool_choice not in TOOL_CHOICE_VALUES:
+                raise ValueError(f"Invalid tool_choice: {tool_choice}")
+
+            # 判断是否支持多模态
+            supports_images = self.model in MULTIMODAL_MODELS
+
+            # 格式化消息
+            if system_msgs:
+                system_msgs = self.format_messages_to_langchain(system_msgs, supports_images)
+                messages = system_msgs + self.format_messages_to_langchain(messages, supports_images)
+            else:
+                messages = self.format_messages(messages, supports_images)
+
+            self.client = self.client.bind_tools(tools)
+            result = self.client.invoke(input=messages)
+            return result
+
+
+           
+
+        
 
         # except TokenLimitExceeded:
         #     # Re-raise token limit errors without logging
@@ -629,6 +714,15 @@ class LLM:
                             "image_url": {"url": f"data:image/jpeg;base64,{message['base64_image']}"},
                         }
                     )
+                    #   message = HumanMessage(
+                    #     content=[
+                    #         {"type": "text", "text": system_prompt},
+                    #         {
+                    #             "type": "image_url",
+                    #             "image_url": {"url": f"data:image/jpeg;base64,{state["image_data"]}"},
+                    #         },
+                    #     ],
+                    # )
                     # 删除base64_image字段，目的是减少占用
                     del message["base64_image"]
                     
@@ -648,7 +742,67 @@ class LLM:
                 raise ValueError(f"无效角色: {msg['role']}")
 
         return formatted_messages
-
-
- 
     
+    @staticmethod
+    def format_messages_to_langchain(
+        messages: List[Union[Message, dict]],
+        supports_images: bool = False,
+    ) -> List[BaseMessage]:
+        formatted: List[BaseMessage] = []
+
+        for msg in messages:
+            # --- Step 1: 标准化为 dict ---
+            if isinstance(msg, Message):
+                msg = msg.to_dict()
+            elif not isinstance(msg, dict):
+                raise TypeError(f"不支持的消息类型: {type(msg)}")
+
+            role = msg.get("role")
+            content = msg.get("content")
+            base64_image = msg.get("base64_image")
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+            name = msg.get("name")
+
+            # --- Step 2: 构造 content 块 ---
+            content_blocks = []
+
+            # 文字部分
+            if content:
+                if isinstance(content, str):
+                    content_blocks.append({"type": "text", "text": content})
+                elif isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, str):
+                            content_blocks.append({"type": "text", "text": c})
+                        elif isinstance(c, dict):
+                            content_blocks.append(c)
+
+            # 图像部分（支持多模态）
+            if supports_images and base64_image:
+                if base64_image.strip():
+                    content_blocks.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                    })
+                # 删除冗余字段
+                msg.pop("base64_image", None)
+
+            # --- Step 3: 根据 role 构造 LangChain Message ---
+            if role == Role.USER:
+                formatted.append(HumanMessage(content=content_blocks))
+            elif role == Role.SYSTEM:
+                formatted.append(SystemMessage(content=content_blocks))
+            elif role == Role.ASSISTANT:
+                # 若有 tool_calls，则传入 LangChain 的 AIMessage
+                formatted.append(AIMessage(content=content_blocks, tool_calls=tool_calls))
+            elif role == Role.TOOL:
+                formatted.append(ToolMessage(
+                    content=content_blocks,
+                    name=name or "unknown_tool",
+                    tool_call_id=tool_call_id or "unknown_call",
+                ))
+            else:
+                raise ValueError(f"未知角色类型: {role}")
+
+        return formatted
