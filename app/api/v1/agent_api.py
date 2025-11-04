@@ -15,6 +15,8 @@ from app.cores.config import config
 from app.database.utils import KnowledgeFile
 from app.tools.utils import thread_pool_executor
 from app.agents.supervisor_agent import SupervisorAgent
+from fastapi.responses import StreamingResponse
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,7 +24,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-# from app.database.kb.milvus_kb_service import MilvusKBService
+from app.database.kb.milvus_kb_service import MilvusKBService
 from app.cores.config import config
 
 router = APIRouter()
@@ -113,12 +115,18 @@ async def chat(
                 for file in metadata_dict["files"]
             ]
 
+        # async def event_stream():
+        #     async for chunk in agent.chat_response(message=query, file_list=file_list):
+        #         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+
+        # return StreamingResponse(event_stream(), media_type="text/event-stream")
         result = await agent.chat_response(message=query, file_list=file_list)
         logger.info(result)
         return result
 
     except Exception as e:
-        logger.error(str(e))
+        import traceback as tra
+        logger.error(str(tra.format_exc()))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -165,7 +173,7 @@ async def upload_files(
     failed_files = []
     documents_to_add = []
     file_data_list = []
-    # milvus_service = MilvusKBService()
+    milvus_service = MilvusKBService()
 
     for file in files:
         logger.info(f"正在处理文件 {file.filename},{file}")
@@ -197,23 +205,23 @@ async def upload_files(
         #     # 确保关闭文件句柄
         #     file.file.close()
 
-        # if file_ext in IMAGE_EXTS:
-        #     uploaded_images.append(file.filename)
+        if file_ext in IMAGE_EXTS:
+            uploaded_images.append(file.filename)
 
         if file_ext in DOCUMENT_EXTS:
-            pass
-            # # 文档进行向量化
-            # for success, file, msg, docs in _parse_files_in_thread(
-            #     files=file_data_list,
-            #     dir=path,
-            #     zh_title_enhance=zh_title_enhance,
-            #     chunk_size=chunk_size,
-            #     chunk_overlap=chunk_overlap,
-            # ):
-            #     if success:
-            #         documents_to_add += docs
-            #     else:
-            #         failed_files.append({file: msg})
+           
+            # 文档进行向量化
+            for success, file, msg, docs in _parse_files_in_thread(
+                files=file_data_list,
+                dir=path,
+                zh_title_enhance=zh_title_enhance,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            ):
+                if success:
+                    documents_to_add += docs
+                else:
+                    failed_files.append({file: msg})
         else:
             # 其他文件类型暂时只保存，不向量化
             uploaded_images.append(file.filename)

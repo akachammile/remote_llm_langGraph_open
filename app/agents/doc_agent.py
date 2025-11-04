@@ -31,7 +31,8 @@ class DocAgent(BaseAgent):
     
     
     async def doc_agent_supervisor(self, state: AgentState)-> AgentState:
-        print("docxxxxxxxxxxxx")
+        task = state["sub_task"].pop(0)
+        logger.info(f"✅ 执行doc_agent任务：{task}")
         return state
 
         

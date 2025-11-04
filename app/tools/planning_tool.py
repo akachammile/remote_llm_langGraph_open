@@ -51,5 +51,7 @@ class PlanningTool(BaseTool):
         """
         system_msgs = Message.system_message(PLAN_PROMPT)
         plan_results = await self.llm.ask_v2([user_message], system_msgs=[system_msgs])
+        print(plan_results)
+        print(type(plan_results))
         return plan_results
      

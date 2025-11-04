@@ -50,6 +50,7 @@ class SupervisorAgent(BaseAgent):
         self.placehold_prompt: str = self._build_prompt()
         self.vision_subgraph = VisionAgent().build_subgraph()
         self.doc_subgraph = DocAgent().build_subgraph()
+        self.chat_subgraph = ChatAgent().build_subgraph()
 
 
         if not self.placehold_prompt:
@@ -153,17 +154,49 @@ class SupervisorAgent(BaseAgent):
                     if extension in IMAGE_EXTENSIONS:
                         with open(file_path, "rb") as image_file:
                             encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-            state: AgentState = {"question": message,"memory": self.chat_history,
-                "image_data": encoded_string,
-                "next_agent":[],
-                "image_format": extension,
-                "image_path": image_path,
-                "sub_task":[],
-                "messages": [],
-                "processed_image_path":[],
-                "tasks_initialized": False,
-            }
 
+            state: AgentState = {
+                # ========== 基础信息 ==========
+                "name": self.name,
+                "question": message,
+                "last_agent": None,
+                
+                # ========== 任务管理 ==========
+                "next_agent": [],
+                "sub_task": [],
+                "history": [],
+                
+                # ========== 工具相关 ==========
+                "tool_require": None,
+                "too_call": None,
+                
+                # ========== 记忆与上下文 ==========
+                "memory": self.chat_history,
+                
+                # ========== 图像相关 ==========
+                "image_data": encoded_string,
+                "image_path": image_path,
+                "image_format": extension,
+                "image_content": None,
+                "image_uri": None,
+                "initial_image_description": None,
+                "processed_image_path": [],
+                
+                # ========== 文档相关 ==========
+                "processed_doc_path": None,
+                
+                # ========== 控制标志 ==========
+                "reflection": None,
+                "tasks_initialized": False,
+                "is_related": False,
+                
+                # ========== 步骤控制 ==========
+                "max_steps": None,
+                "repeat_step": None,
+                
+                # ========== 消息列表 ==========
+                "messages": [],
+            }
             response: AgentState = await self._graph.ainvoke(state)
             return response
         except Exception as e:
@@ -209,21 +242,13 @@ class SupervisorAgent(BaseAgent):
             state["tasks_initialized"] = True
             logger.info(f"初始化 next_agent 队列: {state['next_agent']}")
             logger.info(f"初始化 sub_task: {state['sub_task']}")
+            return state
             
-            # 关键: 必须返回更新后的状态
-            return {
-                "sub_task": state["sub_task"],
-                "next_agent": state["next_agent"],
-                "tasks_initialized": state["tasks_initialized"],
-                "messages": state["messages"],
-            }
         else:
-            # 子图执行后返回,保持状态不变,只记录日志
             logger.info(f"🔄 子Agent执行后返回 Supervisor")
             logger.info(f"   剩余 next_agent: {state.get('next_agent', [])}")
-            logger.info(f"   剩余 sub_task: {state.get('sub_task', [])}")
             # 返回空字典,表示不更新任何状态
-            return {}
+            return state
 
     def route_next_agent(self, state: AgentState) -> str:
         # FIXME, 需要额外添加条件
@@ -240,7 +265,8 @@ class SupervisorAgent(BaseAgent):
         logger.info(f"   sub_task: {state.get('sub_task', [])}")
         
         if state.get("next_agent"):
-            return state["next_agent"].pop(0)  # 返回队列第一个
+            next_agent = state["next_agent"].pop(0)
+            return  next_agent# 返回队列第一个
         return "END"                
 
     async def create_supervisor_graph(self):
@@ -254,6 +280,7 @@ class SupervisorAgent(BaseAgent):
                 supervisor_builder.add_node("top_level_supervisor", self.top_level_supervisor)
                 supervisor_builder.add_node("VisionAgent", self.vision_subgraph)
                 supervisor_builder.add_node("DocAgent", self.doc_subgraph)
+                supervisor_builder.add_node("ChatAgent", self.doc_subgraph)
 
                 # 添加边
                 supervisor_builder.add_edge(START, "top_level_supervisor")
@@ -263,11 +290,14 @@ class SupervisorAgent(BaseAgent):
                     {
                         "VisionAgent": "VisionAgent",
                         "DocAgent": "DocAgent",
+                        "ChatAgent": "ChatAgent",
                         "END": END,
                     },
                 )
+                
                 supervisor_builder.add_edge("VisionAgent", "top_level_supervisor")
                 supervisor_builder.add_edge("DocAgent", "top_level_supervisor")
+                supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
                 self._graph = supervisor_builder.compile()
                 logger.info("Supervisor状态图创建成功")
             except Exception as e:

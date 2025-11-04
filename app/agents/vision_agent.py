@@ -26,6 +26,8 @@ class VisionAgent(BaseAgent):
     async def vision_agent_supervisor(self, state: AgentState) -> AgentState: # type: ignore
         """VisionAgent的Supervisor节点, 决定下一个具体任务节点"""
         # 保证列表字段与任务初始化状态在子图返回时保持一致
+        print(state)
+        print("走了vision_agent_supervisor")
         state["tasks_initialized"] = True
         if not state["image_data"]:
             # 确保 sub_task 已初始化

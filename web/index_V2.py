@@ -8,10 +8,10 @@ from datetime import datetime
 
 # --- 页面配置 & 主题设置 ---
 st.set_page_config(
-    page_title="🤖 多模态智能体", 
+    page_title="🤖 遥感智能体", 
     layout="wide",
     initial_sidebar_state="expanded",
-    menu_items={"About": "### 🤖 AI-Powered Agent\n支持多模态问答、文档解析和图像处理"}
+    menu_items={"About": "### 🤖 遥感智能体支持多模态问答、文档解析和图像处理"}
 )
 
 # --- 自定义 CSS 样式 ---
@@ -32,57 +32,8 @@ st.markdown("""
         max-width: 800px;
         margin: 0 auto;
         padding: 1.5rem 2rem !important;
-        display: flex;
-        flex-direction: column;
-        min-height: 100vh;
     }
     
-    /* 聊天内容区域 */
-    .chat-content {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        min-height: 0;
-    }
-    
-    /* 无消息时的居中容器 */
-    .empty-state {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
-
-    /* 输入框容器 - 动态定位 */
-    .stChatInputContainer {
-        max-width: 600px;
-        margin: 0 auto !important;
-        padding: 0.8rem 0 !important;
-        width: 100% !important;
-        /* 默认居中在视口下半部分 */
-        position: fixed;
-        bottom: auto;
-        left: 50%;
-        transform: translateX(-50%);
-        top: 50%;
-        z-index: 100;
-        background: linear-gradient(to top, rgba(255,255,255,1), rgba(255,255,255,0));
-        padding-bottom: 2rem !important;
-    }
-    
-    /* 有消息时固定在底部 */
-    .stChatInputContainer.has-messages {
-        position: fixed;
-        bottom: 0;
-        top: auto;
-        transform: translateX(-50%);
-        padding: 0.8rem 0 !important;
-        background: white;
-        box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
-    }
-
     /* 侧边栏 - 清洁风格 */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #2d3561 0%, #1a1f3a 100%);
@@ -233,25 +184,25 @@ st.markdown("""
     
     /* 输入框 - 关键！保持宽度一致 */
     .stChatInputContainer {
-        max-width: 600px;
+        max-width: 600px !important;
         margin: 0 auto !important;
-        padding: 0.8rem 0 !important;
+        padding: 0.6rem 0 !important;
         width: 100% !important;
     }
     
     .stChatInput {
-        max-width: 600px;
+        max-width: 600px !important;
         margin: 0 auto !important;
+        width: 100% !important;
     }
     
     .stChatInput input {
         border-radius: 20px !important;
         border: 1px solid #ddd !important;
-        padding: 0.8rem 1.2rem !important;
+        padding: 0.75rem 1.2rem !important;
         font-size: 0.9rem !important;
         background-color: #f8f9fa !important;
         width: 100% !important;
-        max-width: 600px !important;
     }
     
     .stChatInput input:focus {
@@ -315,43 +266,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- JavaScript 动态控制输入框位置 ---
-st.markdown("""
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    function updateInputPosition() {
-        const inputContainer = document.querySelector('.stChatInputContainer');
-        const chatMessages = document.querySelectorAll('.stChatMessage');
-        
-        if (!inputContainer) return;
-        
-        // 如果有聊天消息，添加 has-messages 类
-        if (chatMessages.length > 0) {
-            inputContainer.classList.add('has-messages');
-        } else {
-            inputContainer.classList.remove('has-messages');
-        }
-    }
-    
-    // 初始执行
-    updateInputPosition();
-    
-    // 监听 DOM 变化
-    const observer = new MutationObserver(updateInputPosition);
-    observer.observe(document.body, { 
-        childList: true, 
-        subtree: true 
-    });
-});
-</script>
-""", unsafe_allow_html=True)
-
 # --- 配置 & 常量 ---
 CHAT_BACKEND_URL = "http://127.0.0.1:8899/api/v1/chat/chat"
 UPLOAD_BACKEND_URL = "http://127.0.0.1:8899/api/v1/chat/upload"
 
-st.set_page_config(page_title="🤖 多模态智能体", layout="wide")
-st.title("🤖 AI-Powered Agent")
+st.set_page_config(page_title="🌏遥感智能体", layout="wide")
+st.title("🌏遥感智能体")
 st.caption("🚀 Qwen多模态智能体, 支持问答、文档解析！")
 
 # --- API 调用函数 ---
@@ -400,6 +320,34 @@ def call_chat_api(query_text: str, metadata: Dict) -> Optional[str]:
 if "conversations" not in st.session_state:
     st.session_state.conversations = [{"title": "对话 1", "messages": []}]
     st.session_state.current_chat_index = 0
+
+if "sample_triggered" not in st.session_state:
+    st.session_state.sample_triggered = None
+
+if "prefilled_query" not in st.session_state:
+    st.session_state.prefilled_query = ""
+
+if "prefilled_files" not in st.session_state:
+    st.session_state.prefilled_files = []
+
+# 定义模拟上传文件的辅助类
+class MockUploadedFile:
+    def __init__(self, name, data):
+        self.name = name
+        self._data = data
+    def getvalue(self):
+        return self._data
+    @property
+    def type(self):
+        ext = self.name.split('.')[-1].lower()
+        mime_types = {
+            'tif': 'image/tiff',
+            'tiff': 'image/tiff',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+        }
+        return mime_types.get(ext, 'application/octet-stream')
 
 with st.sidebar:
     # 侧边栏标题
@@ -452,6 +400,100 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# --- 样例按钮区域 (固定显示) ---
+st.markdown("""
+<style>
+    .sample-container {
+        margin: 1rem auto 1.5rem auto;
+        max-width: 720px;
+        text-align: center;
+    }
+    .sample-title {
+        color: #667eea;
+        font-weight: 600;
+        font-size: 1rem;
+        margin-bottom: 1rem;
+    }
+    .sample-button-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .sample-description {
+        font-size: 0.75rem;
+        color: #6b7280;
+        line-height: 1.3;
+        margin-top: 0.3rem;
+        min-height: 2.6rem;
+    }
+    [data-testid="column"] .stButton > button {
+        transition: all 0.3s ease !important;
+        font-size: 0.9rem !important;
+        padding: 0.6rem 1rem !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border: none !important;
+        box-shadow: 0 2px 6px rgba(102, 126, 234, 0.25) !important;
+    }
+    [data-testid="column"] .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="sample-container">', unsafe_allow_html=True)
+st.markdown('<h4 class="sample-title">✨ 快速开始 - 试试这些功能</h4>', unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("✂️ 图像解读", key="sample_seg", use_container_width=True):
+        st.session_state.prefilled_query = "请对这张图像解读后填入doc文档"
+        
+        # 加载本地文件
+        local_file_path = "sample_data/segmentation_sample.tif"
+        if os.path.exists(local_file_path):
+            try:
+                with open(local_file_path, "rb") as f:
+                    file_data = f.read()
+                file_name = os.path.basename(local_file_path)
+                st.session_state.prefilled_files = [MockUploadedFile(file_name, file_data)]
+                st.info(f"💡 已自动加载样例文件: {file_name}，请点击发送按钮提交")
+            except Exception as e:
+                st.warning(f"⚠️ 加载本地文件失败: {e}")
+        st.rerun()
+    st.markdown('<p class="sample-description">智能分割图像中的不同区域,生成带解读的专业文档报告</p>', unsafe_allow_html=True)
+
+with col2:
+    if st.button("🛰️ 遥感图像处理", key="sample_image", use_container_width=True):
+        st.session_state.prefilled_query = "请对这张遥感图像进行分割处理"
+        
+        # 加载本地文件
+        local_file_path = "sample_data/remote_sensing_sample.tif"
+        if os.path.exists(local_file_path):
+            try:
+                with open(local_file_path, "rb") as f:
+                    file_data = f.read()
+                file_name = os.path.basename(local_file_path)
+                st.session_state.prefilled_files = [MockUploadedFile(file_name, file_data)]
+                st.info(f"💡 已自动加载样例文件: {file_name}，请点击发送按钮提交")
+            except Exception as e:
+                st.warning(f"⚠️ 加载本地文件失败: {e}")
+        st.rerun()
+    st.markdown('<p class="sample-description">针对图像中的内容分割提取展示</p>', unsafe_allow_html=True)
+
+with col3:
+    if st.button("💬 智能问答", key="sample_qa", use_container_width=True):
+        st.session_state.prefilled_query = "你好!请介绍一下你的功能和能力"
+        st.session_state.prefilled_files = []
+        st.info(f"💡 已填充示例问题，请点击发送按钮提交")
+        st.rerun()
+    st.markdown('<p class="sample-description">多轮对话理解需求,提供专业的遥感知识问答服务</p>', unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('<br>', unsafe_allow_html=True)
+
 # 聊天历史消息
 for msg in current_conv["messages"]:
     with st.chat_message(msg["role"]):
@@ -471,13 +513,208 @@ for msg in current_conv["messages"]:
                     # 其他文件类型显示文件名
                     st.markdown(f"📎 **{file_name}**")
 
+# 显示预填充的问题和文件预览（输入框上方的待发送区域）
+if st.session_state.prefilled_query or st.session_state.prefilled_files:
+    st.markdown("""<div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 16px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);'>
+                <h4 style='color: white; margin: 0 0 12px 0; font-size: 1rem;'>✨ 待发送内容</h4>
+                </div>""", unsafe_allow_html=True)
+    
+    with st.container():
+        # 显示问题文本
+        if st.session_state.prefilled_query:
+            st.markdown(f"""<div style='background: white; padding: 14px 16px; border-radius: 8px; 
+                        margin-bottom: 12px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.08);'>
+                        <strong style='color: #667eea;'>💬 问题:</strong><br/>
+                        <span style='color: #374151; font-size: 0.95rem;'>{st.session_state.prefilled_query}</span>
+                        </div>""", unsafe_allow_html=True)
+        
+        # 显示文件
+        if st.session_state.prefilled_files:
+            st.markdown("""<div style='background: white; padding: 14px 16px; border-radius: 8px; 
+                        margin-bottom: 12px; border-left: 4px solid #10b981; box-shadow: 0 2px 4px rgba(0,0,0,0.08);'>
+                        <strong style='color: #10b981;'>📎 已加载文件:</strong></div>""", unsafe_allow_html=True)
+            
+            cols = st.columns(min(3, len(st.session_state.prefilled_files)))
+            for idx, file in enumerate(st.session_state.prefilled_files):
+                with cols[idx % len(cols)]:
+                    file_ext = file.name.split('.')[-1].lower()
+                    if file_ext in ["tif", "png", "jpeg", "jpg", "gif"]:
+                        st.image(file.getvalue(), caption=file.name, use_column_width=True)
+                    else:
+                        st.markdown(f"""<div style='background: #f3f4f6; padding: 12px; border-radius: 6px; text-align: center;'>
+                                    📄 <strong>{file.name}</strong></div>""", unsafe_allow_html=True)
+        
+        # 发送和取消按钮
+        col_send, col_cancel = st.columns([1, 1])
+        with col_send:
+            send_prefilled = st.button("📤 发送此内容", key="send_prefilled", use_container_width=True, type="primary")
+        with col_cancel:
+            cancel_prefilled = st.button("❌ 取消", key="cancel_prefilled", use_container_width=True)
+        
+        if cancel_prefilled:
+            st.session_state.prefilled_query = ""
+            st.session_state.prefilled_files = []
+            st.rerun()
+        
+        if send_prefilled:
+            # 处理发送逻辑
+            user_text = st.session_state.prefilled_query
+            uploaded_files = st.session_state.prefilled_files
+            
+            # 清除预填充状态
+            st.session_state.prefilled_query = ""
+            st.session_state.prefilled_files = []
+            
+            # 显示用户消息
+            st.chat_message("user").write(f"🔊 {user_text}")
+            user_message = {"role": "user", "content": user_text, "files": []}
+            
+            if uploaded_files:
+                with st.chat_message("user"):
+                    for file in uploaded_files:
+                        bytes_data = file.getvalue()
+                        file_ext = file.name.split('.')[-1].lower()
+                        if file_ext in ["tif", "png", "jpeg", "jpg", "gif"]:
+                            st.image(bytes_data, caption=file.name, width=200)
+                        else:
+                            st.markdown(f"📎 **{file.name}**")
+                        if isinstance(user_message.get("files"), list):
+                            user_message["files"].append({"name": file.name, "data": bytes_data})
+            
+            current_conv["messages"].append(user_message)
+            
+            # 上传文件
+            server_filenames = []
+            upload_ok = True
+            
+            if uploaded_files:
+                with st.spinner("正在上传文件..."):
+                    returned_names = call_upload_api(uploaded_files)
+                    if returned_names:
+                        server_filenames = returned_names
+                        st.success(f"文件 {', '.join(server_filenames)} 上传成功！")
+                    else:
+                        upload_ok = False
+            
+            # 调用后端API
+            if upload_ok:
+                metadata_dict = {}
+                if server_filenames:
+                    metadata_dict["files"] = [{"saved_path": name} for name in server_filenames]
+                
+                with st.chat_message("assistant"):
+                    with st.spinner("AI 正在思考中..."):
+                        reply_content = call_chat_api(user_text, metadata_dict)
+                        if reply_content is not None:
+                            reply_content = json.loads(reply_content)
+                        if reply_content and reply_content.get("messages"):
+                            first_message_content = reply_content["messages"][0].get("content", "")
+                            st.write(first_message_content)
+                            assistant_message = {"role": "assistant", "content": first_message_content}
+                            current_conv["messages"].append(assistant_message)
+                        
+                        # 处理图像
+                        processed_files = reply_content.get("processed_image_path", []) if reply_content else []
+                        if processed_files:
+                            st.markdown("""
+                            <div style="margin-top: 1rem;">
+                                <h4 style="color: #667eea; font-weight: 600;">🖼️ 处理后的图像</h4>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            cols = st.columns(min(3, len(processed_files)))
+                            for idx, file_path in enumerate(processed_files):
+                                try:
+                                    with cols[idx % len(cols)]:
+                                        if file_path.startswith('http'):
+                                            st.image(file_path, use_container_width=True)
+                                        elif os.path.exists(file_path):
+                                            with open(file_path, "rb") as f:
+                                                image_data = f.read()
+                                            st.image(image_data, use_container_width=True)
+                                        else:
+                                            st.warning(f"⚠️ 图像文件不存在: {file_path}")
+                                except Exception as e:
+                                    st.error(f"无法显示图像 {file_path}: {e}")
+                        
+                        # 处理文档
+                        processed_docs = reply_content.get("processed_doc_path", []) if reply_content else []
+                        if processed_docs:
+                            st.markdown("""
+                            <div style="margin-top: 1rem;">
+                                <h4 style="color: #667eea; font-weight: 600;">📄 处理后的文档</h4>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            for doc_path in processed_docs:
+                                try:
+                                    file_bytes = None
+                                    doc_name = doc_path.split("/")[-1]
+                                    mime_type = "application/octet-stream"
+                                    
+                                    if doc_path.startswith("http"):
+                                        file_bytes = requests.get(doc_path).content
+                                    else:
+                                        if os.path.exists(doc_path):
+                                            with open(doc_path, "rb") as f:
+                                                file_bytes = f.read()
+                                    
+                                    if file_bytes:
+                                        if doc_name.lower().endswith(".docx"):
+                                            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                        elif doc_name.lower().endswith(".doc"):
+                                            mime_type = "application/msword"
+                                        elif doc_name.lower().endswith(".pdf"):
+                                            mime_type = "application/pdf"
+                                        elif doc_name.lower().endswith((".txt", ".md")):
+                                            mime_type = "text/plain"
+                                        
+                                        col1, col2 = st.columns([3, 1])
+                                        with col1:
+                                            st.markdown(f"""
+                                            <div style="background: white; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.06);">
+                                                <strong>📄 {doc_name}</strong>
+                                            </div>
+                                            """, unsafe_allow_html=True)
+                                        with col2:
+                                            st.download_button(
+                                                label="⬇️ 下载",
+                                                data=file_bytes,
+                                                file_name=doc_name,
+                                                mime=mime_type,
+                                                key=f"doc_prefilled_{hash(doc_path)}",
+                                                use_container_width=True
+                                            )
+                                        
+                                        if doc_name.lower().endswith((".txt", ".md")):
+                                            try:
+                                                preview_text = file_bytes.decode("utf-8")[:500]
+                                                st.text_area("", value=preview_text, height=120, disabled=True, label_visibility="collapsed")
+                                            except:
+                                                st.info("📄 文本文件，可下载查看完整内容。")
+                                        elif doc_name.lower().endswith(".docx"):
+                                            st.success("✅ Word 文档已处理，点击上方下载按钮获取。")
+                                        elif doc_name.lower().endswith(".pdf"):
+                                            st.success("✅ PDF 文档已处理，点击上方下载按钮获取。")
+                                        
+                                        if "processed_docs" not in current_conv:
+                                            current_conv["processed_docs"] = []
+                                        current_conv["processed_docs"].append(doc_path)
+                                
+                                except Exception as e:
+                                    st.error(f"无法显示或下载文档: {e}")
+    
+    st.markdown("<div style='margin: 16px 0; border-top: 2px dashed #e5e7eb;'></div>", unsafe_allow_html=True)
+
+# 普通输入框（用户自己输入）
 if prompt_data := st.chat_input(
     "💬 输入消息或上传文件...", 
     accept_file="multiple", 
     file_type=["tif", "png", "jpeg", "jpg", "docx", "doc", "pdf", "txt"]
 ):
     user_text = prompt_data.text
-    uploaded_files = prompt_data.files
+    uploaded_files = list(prompt_data.files) if prompt_data.files else []
 
     st.chat_message("user").write(f"🔊 {user_text}")
     user_message = {"role": "user", "content": user_text, "files": []}
@@ -541,20 +778,20 @@ if prompt_data := st.chat_input(
                     """, unsafe_allow_html=True)
                     
                     cols = st.columns(min(3, len(processed_files)))
-                    for idx, file_data in enumerate(processed_files):
+                    for idx, file_path in enumerate(processed_files):
                         try:
                             with cols[idx % len(cols)]:
-                                if file_data.startswith('http'):
-                                    st.image(file_data, use_column_width=True)
+                                # 判断是URL还是本地路径
+                                if file_path.startswith('http'):
+                                    st.image(file_path, use_container_width=True)
+                                elif os.path.exists(file_path):
+                                    with open(file_path, "rb") as f:
+                                        image_data = f.read()
+                                    st.image(image_data, use_container_width=True)
                                 else:
-                                    st.image(file_data, use_column_width=True)
-
-                                # Save processed images to conversation history
-                                if "processed_images" not in current_conv:
-                                    current_conv["processed_images"] = []
-                                current_conv["processed_images"].append(file_data)
+                                    st.warning(f"⚠️ 图像文件不存在: {file_path}")
                         except Exception as e:
-                            st.error(f"无法显示图像: {e}")
+                            st.error(f"无法显示图像 {file_path}: {e}")
                             
                 processed_docs = reply_content.get("processed_doc_path", []) if reply_content else []
                 if processed_docs:
@@ -577,6 +814,8 @@ if prompt_data := st.chat_input(
                                 if os.path.exists(doc_path):
                                     with open(doc_path, "rb") as f:
                                         file_bytes = f.read()
+                                else:
+                                    st.warning(f"⚠️ 文档文件不存在: {doc_path}")
                             
                             if file_bytes:
                                 # 根据文件类型设置 MIME 类型
@@ -631,15 +870,3 @@ if prompt_data := st.chat_input(
                         
                         except Exception as e:
                             st.error(f"无法显示或下载文档: {e}")   
-
-            # Reload processed images from conversation history
-            # if "processed_images" in current_conv:
-            #     st.write("🖼️ 历史处理图像：")
-            #     for img_data in current_conv["processed_images"]:
-            #         try:
-            #             if img_data.startswith('http'):
-            #                 st.image(img_data, caption="历史处理图像", use_column_width=True)
-            #             else:
-            #                 st.image(img_data, caption="历史处理图像", use_column_width=True)
-            #         except Exception as e:
-            #             st.error(f"无法显示历史图像: {e}")
