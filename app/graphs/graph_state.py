@@ -1,5 +1,7 @@
-from typing import Union, List, Optional
-from langgraph.graph import MessagesState
+import operator
+from typing import Union, List, Optional, Annotated, TypedDict
+from langgraph.graph import MessagesState, add_messages
+from langchain_core.messages import BaseMessage
 
 
 class AgentState(MessagesState):
@@ -52,3 +54,61 @@ class AgentState(MessagesState):
     # state: str # Agent当前状态
    
     # current_step: int # 当前步骤数
+
+
+class AgentStateV2(TypedDict):
+    """LangGraph Agent 状态定义 V2 - 使用 TypedDict 标准方式
+    
+    改进点:
+    - 使用 TypedDict 而非继承 MessagesState(LangGraph 推荐)
+    - messages 字段使用 Annotated[list, add_messages] 自动累积
+    - 支持 System/Human/AI/Tool 等标准 BaseMessage 类型
+    - 与 LangChain 的 bind_tools、LCEL 链路无缝集成
+    
+    注意:
+    - Annotated[list, add_messages]: 自动累积消息(去重合并)
+    - Annotated[list, operator.add]: 简单追加列表
+    - 普通类型注解: 覆盖更新策略
+    - 节点不返回某字段时,该字段保持不变
+    """
+    
+    # ========== 消息管理(核心) ==========
+    messages: Annotated[list[BaseMessage], add_messages]  # LangChain标准消息列表(自动累积)
+    
+    # ========== 基础信息 ==========
+    name: Optional[str]  # Agent名称
+    question: str  # 当前问题
+    last_agent: Optional[str]  # 上一个Agent
+    
+    # ========== 任务管理 ==========
+    next_agent: list[str]  # 待执行Agent队列
+    sub_task: list  # 子任务列表(planning结果)
+    history: Annotated[list[str], operator.add]  # 历史记录(自动追加)
+    
+    # ========== 工具相关 ==========
+    tool_require: Optional[str]  # 当前问题是否需要工具
+    too_call: Optional[str]  # 需要调用的工具名
+    
+    # ========== 记忆与上下文 ==========
+    memory: Optional[str]  # 对话记忆(兼容旧版,推荐直接用messages)
+    
+    # ========== 图像相关 ==========
+    image_data: Union[bytes, str, None]  # 图像数据(二进制/base64)
+    image_path: Optional[str]  # 图像文件路径
+    image_format: Optional[str]  # 图像格式: "png", "jpg"
+    image_content: Optional[str]  # 图像内容描述
+    image_uri: Optional[str]  # 持久化路径/URI
+    initial_image_description: Optional[str]  # 初始描述
+    processed_image_path: Annotated[list[str], operator.add]  # 已处理图像路径(自动追加)
+    
+    # ========== 文档相关 ==========
+    processed_doc_path: Union[list, str, None]  # 已处理文档路径
+    
+    # ========== 控制标志 ==========
+    reflection: Optional[bool]  # 是否需要反思
+    tasks_initialized: bool  # 任务是否已初始化
+    is_related: bool  # 是否与图像上下文相关
+    
+    # ========== 步骤控制 ==========
+    max_steps: Optional[int]  # 最大步骤数
+    repeat_step: Optional[int]  # 重复步骤数

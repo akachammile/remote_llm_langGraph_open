@@ -6,11 +6,12 @@ streaming chat, message history management, and chat history clearing.
 
 import json
 import os
+import base64
 import traceback
 import shutil
 from app.logger import logger
 from fastapi import Body, Form, UploadFile, File
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Set
 from app.cores.config import config
 from app.database.utils import KnowledgeFile
 from app.tools.utils import thread_pool_executor
@@ -46,6 +47,7 @@ def _parse_files_in_thread(
     生成器返回保存结果：[success or error, filename, msg, docs]
     """
     def parse_file(file_data: dict):
+        filename = "unknown"  # 默认值，防止异常时未定义
         try:
             filename = file_data["filename"]
             file_path = os.path.join(dir, filename)
@@ -101,24 +103,42 @@ async def chat(
         metadata_dict = json.loads(metadata) if metadata else {}
         file_list = []
     except Exception as e:
-        logger.exception(f"解析文件出错：{e}")
+        logger.exception(f"解析文件出错:{e}")
         metadata_dict = {}
+        file_list = []
     # stream 可能是字符串，强转为 bool
     if isinstance(stream, str):
         stream_bool = stream.lower() in ("1", "true", "yes")
     else:
         stream_bool = bool(stream)
 
-    try:
-        if metadata_dict:
-            file_list = [
-                os.path.join(UPLOAD_DIRECTORY, file["saved_path"])
-                for file in metadata_dict["files"]
-            ]
+    if metadata_dict:
+        file_list = [
+            os.path.join(UPLOAD_DIRECTORY, file["saved_path"])
+            for file in metadata_dict["files"]
+        ]
+        
+    IMAGE_EXTENSIONS: Set[str] = {"png", "jpg", "jpeg", "bmp", "tif"}
+    encoded_string = ""
+    extension = ""
+    image_path = ""
 
-    
+    # 更新记忆库
+    # if message:
+    #     self.update_agent_memory(role="user", content=message)
+    #     logger.info(f"总体记忆:{self.memory.messages}")
+
+    if file_list:
+        for file_path in file_list:
+            image_path, extension = os.path.splitext(file_path)  # 在循环内获取扩展名
+            extension = extension.lower().lstrip(".")
+            if extension in IMAGE_EXTENSIONS:
+                with open(file_path, "rb") as image_file:
+                    encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+
+    try:
         app = await agent.create_supervisor_graph()
-        app.invoke(input={})
+        result = await app.ainvoke(input={"messages": query, "image_data": encoded_string})
         logger.info(result)
         return result
 
@@ -128,7 +148,7 @@ async def chat(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def get_temp_dir(id: str = None) -> Tuple[str, str]:
+def get_temp_dir(id: Optional[str] = None) -> Tuple[str, str]:
     """
     创建一个临时目录，返回（路径，文件夹名称）
     """
@@ -174,6 +194,10 @@ async def upload_files(
     milvus_service = MilvusKBService()
 
     for file in files:
+        if not file.filename:
+            logger.warning("文件名为空,跳过处理")
+            continue
+            
         logger.info(f"正在处理文件 {file.filename},{file}")
 
         file_ext = os.path.splitext(file.filename)[1].lower()

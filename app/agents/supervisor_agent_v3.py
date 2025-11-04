@@ -9,7 +9,7 @@ from app.agents import *
 from app.logger import logger
 from pydantic import Field
 from app.database.utils import KnowledgeFile
-from app.graphs.graph_state import AgentState
+from app.graphs.graph_state import AgentState, AgentStateV2
 from langgraph.graph import MessagesState
 
 from typing import List, Optional, Dict, Union, Set
@@ -208,11 +208,11 @@ class SupervisorAgent(BaseAgent):
 
 
 
-    async def top_level_supervisor(self, state: MessagesState):  # type: ignore
-        """顶层Supervisor节点, 决定下一个子Agent"""        
-        user_message = Message.user_message(content=state["question"], base64_image=state["image_data"])
+    async def top_level_supervisor(self, state: AgentStateV2):  # type: ignore
+        """顶层Supervisor节点, 决定下一个子Agent"""   
+        user_message = Message.user_message(content=state["messages"][-1].content, base64_image=state["image_data"])
         system_message = Message.system_message(self.system_prompt)
-          
+    
         response = await self.llm.ask_tool_v3(
                 messages=[user_message],
                 system_msgs=[system_message],
@@ -235,7 +235,7 @@ class SupervisorAgent(BaseAgent):
         #     logger.info(f"   剩余 next_agent: {state.get('next_agent', [])}")
         #     # 返回空字典,表示不更新任何状态
         #     return state
-    async def should_continue(self, state: MessagesState):
+    async def should_continue(self, state: AgentStateV2):
         """Decide if we should continue the loop or stop based upon whether the LLM made a tool call"""
 
         messages = state["messages"]
@@ -283,7 +283,7 @@ class SupervisorAgent(BaseAgent):
         """构建Supervisor的状态图"""
         if self._graph is None:
             try:
-                supervisor_builder = StateGraph(AgentState)
+                supervisor_builder = StateGraph(AgentStateV2)
 
                 
                 # 添加节点
