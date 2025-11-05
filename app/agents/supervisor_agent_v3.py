@@ -1,3 +1,4 @@
+from langchain_core.messages.base import BaseMessage
 import re
 import os
 import json
@@ -11,8 +12,8 @@ from pydantic import Field
 from app.database.utils import KnowledgeFile
 from app.graphs.graph_state import AgentState, AgentStateV2
 from langgraph.graph import MessagesState
-
-from typing import List, Optional, Dict, Union, Set
+from langchain_core.tools import tool
+from typing import Any, List, Optional, Dict, Union, Set
 from app.schemas.schema import Message, ToolChoice
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
@@ -131,153 +132,131 @@ class SupervisorAgent(BaseAgent):
         except Exception as e:
             logger.error(f"当前build_prompt_error错误为: {str(traceback.format_exc())}")
 
-    async def chat_response(self, message: str, file_list: List[Union[str]]) -> AgentState:
-        # FIXME 此处需要优化支持类型
-        # result = cut_query(text=message)
+    # @tool
+    # def chat_node(self, state: str) -> str:
+    #     return {"messages": self.llm.ask_v2(messages=[HumanMessage(content=message)])}
 
-        IMAGE_EXTENSIONS: Set[str] = {"png", "jpg", "jpeg", "bmp", "tif"}
-        encoded_string = ""
-        extension = ""
-        image_path = ""
-        # 创建图
-        if self._graph is None:
-            self._graph = await self.create_supervisor_graph()
 
-        # 更新记忆库
-        # if message:
-        #     self.update_agent_memory(role="user", content=message)
-        #     logger.info(f"总体记忆:{self.memory.messages}")
+    # async def chat_response(self, message: str, file_list: List[Union[str]]) -> AgentState:
+    #     # FIXME 此处需要优化支持类型
+    #     # result = cut_query(text=message)
 
-        try:
-            if file_list:
-                for file_path in file_list:
-                    image_path, extension = os.path.splitext(
-                        file_path
-                    )  # 在循环内获取扩展名
-                    extension = extension.lower().lstrip(".")
-                    if extension in IMAGE_EXTENSIONS:
-                        with open(file_path, "rb") as image_file:
-                            encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+    #     IMAGE_EXTENSIONS: Set[str] = {"png", "jpg", "jpeg", "bmp", "tif"}
+    #     encoded_string = ""
+    #     extension = ""
+    #     image_path = ""
+    #     # 创建图
+    #     if self._graph is None:
+    #         self._graph = await self.create_supervisor_graph()
 
-            state: AgentState = {
-                # ========== 基础信息 ==========
-                "name": self.name,
-                "question": message,
-                "last_agent": None,
+    #     # 更新记忆库
+    #     # if message:
+    #     #     self.update_agent_memory(role="user", content=message)
+    #     #     logger.info(f"总体记忆:{self.memory.messages}")
+
+    #     try:
+    #         if file_list:
+    #             for file_path in file_list:
+    #                 image_path, extension = os.path.splitext(
+    #                     file_path
+    #                 )  # 在循环内获取扩展名
+    #                 extension = extension.lower().lstrip(".")
+    #                 if extension in IMAGE_EXTENSIONS:
+    #                     with open(file_path, "rb") as image_file:
+    #                         encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+
+    #         state: AgentState = {
+    #             # ========== 基础信息 ==========
+    #             "name": self.name,
+    #             "question": message,
+    #             "last_agent": None,
                 
-                # ========== 任务管理 ==========
-                "next_agent": [],
-                "sub_task": [],
-                "history": [],
+    #             # ========== 任务管理 ==========
+    #             "next_agent": [],
+    #             "sub_task": [],
+    #             "history": [],
                 
-                # ========== 工具相关 ==========
-                "tool_require": None,
-                "too_call": None,
+    #             # ========== 工具相关 ==========
+    #             "tool_require": None,
+    #             "tool_call": None,
                 
-                # ========== 记忆与上下文 ==========
-                "memory": self.chat_history,
+    #             # ========== 记忆与上下文 ==========
+    #             "memory": self.chat_history,
                 
-                # ========== 图像相关 ==========
-                "image_data": encoded_string,
-                "image_path": image_path,
-                "image_format": extension,
-                "image_content": None,
-                "image_uri": None,
-                "initial_image_description": None,
-                "processed_image_path": [],
+    #             # ========== 图像相关 ==========
+    #             "image_data": encoded_string,
+    #             "image_path": image_path,
+    #             "image_format": extension,
+    #             "image_content": None,
+    #             "image_uri": None,
+    #             "initial_image_description": None,
+    #             "processed_image_path": [],
                 
-                # ========== 文档相关 ==========
-                "processed_doc_path": None,
+    #             # ========== 文档相关 ==========
+    #             "processed_doc_path": None,
                 
-                # ========== 控制标志 ==========
-                "reflection": None,
-                "tasks_initialized": False,
-                "is_related": False,
+    #             # ========== 控制标志 ==========
+    #             "reflection": None,
+    #             "tasks_initialized": False,
+    #             "is_related": False,
                 
-                # ========== 步骤控制 ==========
-                "max_steps": None,
-                "repeat_step": None,
+    #             # ========== 步骤控制 ==========
+    #             "max_steps": None,
+    #             "repeat_step": None,
                 
-                # ========== 消息列表 ==========
-                "messages": [],
-            }
-            response: AgentState = await self._graph.ainvoke(input=state)
-            return response
-        except Exception as e:
-            logger.error(f"Error: {e}\n{traceback.format_exc()}")
+    #             # ========== 消息列表 ==========
+    #             "messages": [],
+    #         }
+    #         response: AgentState = await self._graph.ainvoke(input=state)
+    #         return response
+    #     except Exception as e:
+    #         logger.error(f"Error: {e}\n{traceback.format_exc()}")
 
 
 
     async def top_level_supervisor(self, state: AgentStateV2):  # type: ignore
         """顶层Supervisor节点, 决定下一个子Agent"""   
-        user_message = Message.user_message(content=state["messages"][-1].content, base64_image=state["image_data"])
+        print(state)
+        user_message = Message.user_message(content=state["question"], base64_image=state["image_data"])
         system_message = Message.system_message(self.system_prompt)
+        # ai_message = Message.assistant_message(content=state["messages"][-1].content)
     
         response = await self.llm.ask_tool_v3(
                 messages=[user_message],
                 system_msgs=[system_message],
                 tools=TEST_TOOLS
             )
-        print(response)
-        return response
-            
-        #     parents = [p for task in state.get("sub_task", [])
-        #         if (p := task.get("parent"))]
+        new_messages: list[str | list[str | dict[Any, Any]] | BaseMessage] = state.get("messages", []) + [response.content]
 
-        #     state.setdefault("next_agent", []).extend(parents)
-        #     state["tasks_initialized"] = True
-        #     logger.info(f"初始化 next_agent 队列: {state['next_agent']}")
-        #     logger.info(f"初始化 sub_task: {state['sub_task']}")
-        #     return state
-            
-        # else:
-        #     logger.info(f"🔄 子Agent执行后返回 Supervisor")
-        #     logger.info(f"   剩余 next_agent: {state.get('next_agent', [])}")
-        #     # 返回空字典,表示不更新任何状态
-        #     return state
+        return {
+            "messages":[response] + state["messages"]
+        }
+     
     async def should_continue(self, state: AgentStateV2):
         """Decide if we should continue the loop or stop based upon whether the LLM made a tool call"""
 
         messages = state["messages"]
         last_message = messages[-1]
-    
+        tool_calls = last_message.tool_calls
         # If the LLM makes a tool call, then perform an action
-        if last_message.tool_calls:
+        if tool_calls:
+            print(f"Tool calls {tool_calls}")
             return "tool_node"
 
-        # Otherwise, we stop (reply to the user)
         return END
    
     async def tool_node(self, state: dict):
         """Performs the tool call"""
 
         result = []
-        print(f"xXXXXXXXXXXXXXXXX{state}XXXXXXXXXXXXXXXXXXXXXX")
+        tools_by_name = {tool.name: tool for tool in TEST_TOOLS}
 
-        # for tool_call in state["messages"][-1].tool_calls:
-        #     tool = tools_by_name[tool_call["name"]]
-        #     observation = tool.invoke(tool_call["args"])
-        #     print(f"xXXXXXXXXXXXXXXXX{observation}XXXXXXXXXXXXXXXXXXXXXX")
-        #     result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
-        # return {"messages": result}
-    # def route_next_agent(self, state: AgentState) -> str:
-    #     # FIXME, 需要额外添加条件
-    #     """判断路由条件，根据节点返回的内容判断下一个需要执行的节点
-
-    #     Args:
-    #         state (dict): _description_
-
-    #     Returns:
-    #         str: _description_
-    #     """
-    #     logger.info(f"🔀 route_next_agent 接收到的状态:")
-    #     logger.info(f"   next_agent: {state.get('next_agent', [])}")
-    #     logger.info(f"   sub_task: {state.get('sub_task', [])}")
-        
-    #     if state.get("next_agent"):
-    #         next_agent = state["next_agent"].pop(0)
-    #         return  next_agent# 返回队列第一个
-    #     return "END"                
+        for tool_call in state["messages"][-1].tool_calls:
+            tool = tools_by_name[tool_call["name"]]
+            observation = tool.invoke(tool_call["args"])
+            result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
+        return {"messages": result}
+            
 
     async def create_supervisor_graph(self):
         """构建Supervisor的状态图"""
@@ -302,20 +281,9 @@ class SupervisorAgent(BaseAgent):
                     ["tool_node", END]
                 )
                 supervisor_builder.add_edge("tool_node", "top_level_supervisor")
-                # supervisor_builder.add_conditional_edges(
-                #     "top_level_supervisor",
-                #     self.route_next_agent,
-                #     {
-                #         "VisionAgent": "VisionAgent",
-                #         "DocAgent": "DocAgent",
-                #         "ChatAgent": "ChatAgent",
-                #         "END": END,
-                #     },
-                # )
+            
                 
-                # supervisor_builder.add_edge("VisionAgent", "top_level_supervisor")
-                # supervisor_builder.add_edge("DocAgent", "top_level_supervisor")
-                # supervisor_builder.add_edge("ChatAgent", "top_level_supervisor")
+               
                 self._graph = supervisor_builder.compile()
                 logger.info("Supervisor状态图创建成功")
             except Exception as e:

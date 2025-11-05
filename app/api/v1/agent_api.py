@@ -17,6 +17,7 @@ from app.database.utils import KnowledgeFile
 from app.tools.utils import thread_pool_executor
 # from app.agents.supervisor_agent import SupervisorAgent
 from app.agents.supervisor_agent_v3 import SupervisorAgent
+# from app.agents.supervisor_agent_v4 import SupervisorAgent
 from fastapi.responses import StreamingResponse
 
 from fastapi import (
@@ -138,7 +139,7 @@ async def chat(
 
     try:
         app = await agent.create_supervisor_graph()
-        result = await app.ainvoke(input={"messages": query, "image_data": encoded_string})
+        result = await app.ainvoke(input={"question": query, "image_data": encoded_string})
         logger.info(result)
         return result
 

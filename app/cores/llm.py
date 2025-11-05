@@ -15,7 +15,6 @@ from langchain_core.language_models.base import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableLambda, RunnableSerializable
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
-
 from app.schemas.schema import Message, ToolChoice, TOOL_CHOICE_VALUES, ROLE_VALUES, TOOL_CHOICE_TYPE, Role
 
 
@@ -465,31 +464,19 @@ class LLM:
                 messages = system_msgs + self.format_messages_to_langchain(messages, supports_images)
             else:
                 messages = self.format_messages(messages, supports_images)
-
-            self.client = self.client.bind_tools(tools)
+            
+            if tools:
+                self.client = self.client.bind_tools(tools)
+            
             result = self.client.invoke(input=messages)
             return result
 
 
-           
 
-        
-
-        # except TokenLimitExceeded:
-        #     # Re-raise token limit errors without logging
-        #     raise
         except ValueError as ve:
             logger.error(f"Validation error in ask_tool: {ve}")
             raise
-        # except OpenAIError as oe:
-        #     logger.error(f"OpenAI API error: {oe}")
-        #     if isinstance(oe, AuthenticationError):
-        #         logger.error("Authentication failed. Check API key.")
-        #     elif isinstance(oe, RateLimitError):
-        #         logger.error("Rate limit exceeded. Consider increasing retry attempts.")
-        #     elif isinstance(oe, APIError):
-        #         logger.error(f"API error: {oe}")
-        #     raise
+    
         except Exception as e:
             logger.error(f"Unexpected error in ask_tool: {e}")
             raise

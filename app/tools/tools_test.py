@@ -1,21 +1,19 @@
 # ... existing code ...
+from langchain_core.tools.base import BaseTool
 from typing import List, Optional, Dict, Any
 from langchain_core.tools import tool
+from app.cores.llm import LLM
+
+
 
 @tool("chat_tool")
-def chat_tool(message: str, tone: str = "normal") -> str:
-    """
-    一个简单的聊天工具。根据语气返回回应。
+def chat_tool(message: str) -> str:
+    """一个聊天助手，精通遥感方面的知识，同时支持对图像的解读/内容解析对话以及日常的对话
     参数:
-      - message: 用户输入内容
-      - tone: 语气，支持 normal/friendly/serious
+      - message: 用户输入内容问题
     返回:
       - 字符串回应
     """
-    if tone == "friendly":
-        return f"😊 很高兴和你聊天：{message}"
-    if tone == "serious":
-        return f"收到：{message}。我会认真处理。"
     return f"你说：{message}"
 
 @tool("image_segmentation_tool")
@@ -79,5 +77,5 @@ def doc_generate_tool(
 #         {"step_id": 4, "action": "汇总与答复", "tool_name": "chat_tool", "parent": "ChatAgent"},
 #     ]
 
-TEST_TOOLS = [chat_tool, image_segmentation_tool, doc_generate_tool]
+TEST_TOOLS: list[BaseTool] = [chat_tool, image_segmentation_tool, doc_generate_tool]
 # ... existing code ...
